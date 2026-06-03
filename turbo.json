@@ -3,7 +3,8 @@
   "tasks": {
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["pnpm_config_verify_deps_before_run"]
     },
     "build": {
       "outputs": [".next/**", "!.next/cache/**"]

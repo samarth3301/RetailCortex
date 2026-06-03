@@ -1,6 +1,10 @@
 packages:
   - frontend
   - backend
+verifyDepsBeforeRun: false
+onlyBuiltDependencies:
+  - "@clerk/shared"
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  "@clerk/shared": true

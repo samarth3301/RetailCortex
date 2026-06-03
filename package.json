@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.3.0",
   "scripts": {
-    "dev": "turbo dev"
+    "dev": "pnpm_config_verify_deps_before_run='' turbo dev"
   },
   "devDependencies": {
     "turbo": "^2"
