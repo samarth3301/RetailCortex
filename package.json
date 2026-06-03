@@ -9,9 +9,12 @@
     "dev:backend": "turbo dev --filter=backend",
     "dev:app": "turbo dev --filter=app",
     "build": "turbo build",
-    "lint": "turbo lint"
+    "lint": "biome lint app/src frontend/src",
+    "format": "biome format --write app/src frontend/src",
+    "check": "biome check --write app/src frontend/src"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "turbo": "^2"
   }
 }
