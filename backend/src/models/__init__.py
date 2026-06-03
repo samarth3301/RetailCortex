@@ -1,4 +1,9 @@
-from src.models.operations import CongestionEvent, CongestionEventCreate, FacilityIssue, FacilityIssueCreate
+from src.models.operations import (
+    CongestionEvent,
+    CongestionEventCreate,
+    FacilityIssue,
+    FacilityIssueCreate,
+)
 from src.models.product import Product, ProductBase, ProductCreate
 from src.models.response import ErrorDetail, FailedResponse, SuccessResponse, fail, ok
 from src.models.user import ClerkUser

@@ -19,6 +19,7 @@ def _prepare_db_url(url: str) -> str:
     new_query = urlencode(query, doseq=True)
     return urlunparse(parsed._replace(query=new_query))
 
+
 TORTOISE_ORM = {
     "connections": {"default": _prepare_db_url(settings.database_url)},
     "apps": {

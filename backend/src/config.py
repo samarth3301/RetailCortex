@@ -24,4 +24,4 @@ class Settings(BaseSettings):
     google_application_credentials: str = ""
 
 
-settings = Settings() # type: ignore
+settings = Settings()  # type: ignore
