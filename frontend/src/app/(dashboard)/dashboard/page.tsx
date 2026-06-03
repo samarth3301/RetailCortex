@@ -92,7 +92,8 @@ export default function DashboardPage() {
         </div>
         <p className="text-zinc-300 font-medium mb-1">CSV onboarding ready</p>
         <p className="text-zinc-600 text-sm max-w-sm mb-4">
-          Upload a CSV catalog to import products, create inventory records, and populate the search index.
+          Upload a CSV catalog to import products, create inventory records, and populate the search
+          index.
         </p>
         <Link
           href="/dashboard/store"
