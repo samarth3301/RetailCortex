@@ -1,5 +1,4 @@
 import enum
-from typing import Optional
 
 from tortoise import fields
 
@@ -19,12 +18,22 @@ class IssueStatus(str, enum.Enum):
     resolved = "resolved"
 
 
+class FacilityType(str, enum.Enum):
+    elevator = "elevator"
+    escalator = "escalator"
+    hvac = "hvac"
+    lighting = "lighting"
+    plumbing = "plumbing"
+    other = "other"
+
+
 class FacilityIssue(BaseModel):
-    zone: Optional[fields.ForeignKeyRelation] = fields.ForeignKeyField(
+    zone: fields.ForeignKeyRelation = fields.ForeignKeyField(
         "models.Zone", related_name="facility_issues", on_delete=fields.SET_NULL, null=True
     )
     title = fields.CharField(max_length=255)
     description = fields.TextField(default="")
+    facility_type = fields.CharEnumField(FacilityType, default=FacilityType.other)
     severity = fields.CharEnumField(IssueSeverity, default=IssueSeverity.medium)
     status = fields.CharEnumField(IssueStatus, default=IssueStatus.open)
     reported_at = fields.DatetimeField(auto_now_add=True)

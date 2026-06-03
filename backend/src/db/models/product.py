@@ -8,6 +8,8 @@ class Product(BaseModel):
     description = fields.TextField(default="")
     price = fields.DecimalField(max_digits=10, decimal_places=2)
     in_stock = fields.BooleanField(default=True)
+    tags = fields.JSONField(default=list)
+    metadata = fields.JSONField(default=dict)
     store: fields.ForeignKeyRelation = fields.ForeignKeyField(
         "models.Store", related_name="products", on_delete=fields.CASCADE
     )
