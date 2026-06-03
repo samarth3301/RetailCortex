@@ -19,10 +19,7 @@ const isStoreAdminRoute = createRouteMatcher([
 ]);
 
 // Routes restricted to super_admin only
-const isSuperAdminRoute = createRouteMatcher([
-  '/dashboard/admin(.*)',
-  '/dashboard/onboarding(.*)',
-]);
+const isSuperAdminRoute = createRouteMatcher(['/dashboard/admin(.*)', '/dashboard/onboarding(.*)']);
 
 // Requires Clerk session token template with: { "metadata": "{{user.public_metadata}}" }
 // Set this up at: Clerk Dashboard → Sessions → Customize session token

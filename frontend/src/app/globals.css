@@ -20,8 +20,9 @@ body {
 
 .grid-bg {
   background-color: var(--grid-color, transparent);
-  background-image: linear-gradient(var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px),
-                    linear-gradient(90deg, var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px);
+  background-image:
+    linear-gradient(var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line-color, rgba(255, 255, 255, 0.03)) 1px, transparent 1px);
   background-size: var(--grid-size, 16px) var(--grid-size, 16px);
   background-position: -1px -1px;
 }

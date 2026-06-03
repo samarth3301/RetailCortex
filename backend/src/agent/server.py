@@ -45,12 +45,10 @@ async def get_store_health():
     return {
         "active_issues_count": len(issues),
         "issues": [
-            {"title": i.title, "severity": i.severity, "type": i.facility_type}
-            for i in issues
+            {"title": i.title, "severity": i.severity, "type": i.facility_type} for i in issues
         ],
         "congestion_status": [
-            {"zone": str(c["zone_id"]), "level": c["level"]}
-            for c in latest_congestion
+            {"zone": str(c["zone_id"]), "level": c["level"]} for c in latest_congestion
         ],
     }
 

@@ -88,7 +88,9 @@ export default async function LandingPage() {
           <h1 className="mt-8 text-4xl sm:text-6xl font-normal tracking-tight text-white font-serif leading-[1.12]">
             Malls change constantly.
             <br />
-            <span className="italic font-light opacity-90">Your operations brain doesn&apos;t.</span>
+            <span className="italic font-light opacity-90">
+              Your operations brain doesn&apos;t.
+            </span>
           </h1>
 
           {/* Paragraph / Product Description */}

@@ -9,7 +9,9 @@ class DynatraceIntegration:
     @staticmethod
     async def report_congestion(zone_id: str, occupancy: int, level: str) -> None:
         if not settings.dynatrace_url or not settings.dynatrace_token:
-            logger.debug("Dynatrace not configured; skipping congestion report for zone %s", zone_id)
+            logger.debug(
+                "Dynatrace not configured; skipping congestion report for zone %s", zone_id
+            )
             return
 
         # Implementation for pushing custom metrics to Dynatrace API
