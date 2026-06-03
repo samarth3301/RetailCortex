@@ -2,10 +2,7 @@
   "name": "retailcortex",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "dev": "turbo dev"
   },
