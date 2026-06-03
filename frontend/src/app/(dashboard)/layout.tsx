@@ -1,7 +1,31 @@
 import { UserButton } from '@clerk/nextjs';
+import { auth } from '@clerk/nextjs/server';
 import Link from 'next/link';
+import type { Role } from '@/lib/roles';
+import { canManageInventory, canResolveIssues } from '@/lib/roles';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { sessionClaims } = await auth();
+  const role = (sessionClaims?.metadata as { role?: Role } | undefined)?.role;
+
+  const navItems = [
+    { label: 'Overview', href: '/dashboard' },
+    { label: 'Stores', href: '/dashboard/stores' },
+    { label: 'Store', href: '/dashboard/store' },
+    ...(canManageInventory(role)
+      ? [
+          { label: 'Products', href: '/dashboard/products' },
+          { label: 'Inventory', href: '/dashboard/inventory' },
+        ]
+      : []),
+    ...(canResolveIssues(role)
+      ? [
+          { label: 'Issues', href: '/dashboard/admin/issues' },
+          { label: 'Onboarding', href: '/dashboard/onboarding' },
+        ]
+      : []),
+  ];
+
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
       <header className="flex items-center justify-between px-8 py-4 border-b border-zinc-800">
@@ -13,12 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span className="font-semibold text-white tracking-tight">RetailCortex</span>
           </Link>
           <nav className="hidden sm:flex items-center gap-1">
-            {[
-              { label: 'Overview', href: '/dashboard' },
-              { label: 'Stores', href: '/dashboard/stores' },
-              { label: 'Store', href: '/dashboard/store' },
-              { label: 'Analytics', href: '/dashboard/analytics' },
-            ].map((item) => (
+            {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
