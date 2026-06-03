@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 
+from src.api.deps import get_current_user
 from src.db.models.product import Product as ProductDB
 from src.integrations.elastic import ElasticIntegration
 from src.models.product import Product, ProductCreate
 from src.models.response import SuccessResponse, ok
+from src.models.user import ClerkUser, UserRole
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -12,8 +14,14 @@ router = APIRouter(prefix="/products", tags=["products"])
 async def list_products(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    user: ClerkUser = Depends(get_current_user),
 ):
-    products = await ProductDB.all().offset(skip).limit(limit)
+    if user.role == UserRole.store_admin:
+        if not user.store_id:
+            return ok([])
+        products = await ProductDB.filter(store_id=user.store_id).offset(skip).limit(limit)
+    else:
+        products = await ProductDB.all().offset(skip).limit(limit)
     return ok(products)
 
 
