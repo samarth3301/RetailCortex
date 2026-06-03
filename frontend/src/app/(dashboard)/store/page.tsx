@@ -1,5 +1,6 @@
 'use client';
 
+import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api';
@@ -74,6 +75,7 @@ function parsePreview(csv: string): ValidationRow[] {
 }
 
 export default function StorePage() {
+  const { getToken } = useAuth();
   const [fileName, setFileName] = useState('sample CSV');
   const [isDragging, setIsDragging] = useState(false);
   const [csvContent, setCsvContent] = useState(SAMPLE_CSV);
@@ -81,9 +83,30 @@ export default function StorePage() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [storeName, setStoreName] = useState('');
+  const [assignedStoreName, setAssignedStoreName] = useState<string | null>(null);
   const [busy, setBusy] = useState<'validate' | 'import' | 'template' | null>(null);
   const [message, setMessage] = useState('Use the sample CSV or upload your own product catalog.');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    async function fetchUserStore() {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await apiFetch('/api/v1/users/me', token);
+        if (res.ok) {
+          const userDetails = await res.json();
+          if (userDetails.store_name) {
+            setAssignedStoreName(userDetails.store_name);
+            setStoreName(userDetails.store_name);
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching user store details', e);
+      }
+    }
+    void fetchUserStore();
+  }, [getToken]);
 
   const validPreviewCount = useMemo(() => preview.filter((row) => row.name).length, [preview]);
 
@@ -118,10 +141,11 @@ export default function StorePage() {
   }, [fileName]);
 
   async function sendCsv(endpoint: '/api/v1/products/validate-csv' | '/api/v1/products/import') {
+    const token = await getToken();
     const body: any = { csv_content: csvContent };
     if (endpoint === '/api/v1/products/import' && storeName) body.store_name = storeName;
 
-    const res = await apiFetch(endpoint, null, {
+    const res = await apiFetch(endpoint, token, {
       method: 'POST',
       body: JSON.stringify(body),
     });
@@ -165,7 +189,11 @@ export default function StorePage() {
     const result = await sendCsv('/api/v1/products/validate-csv');
     if (result) {
       setValidation(result);
-      setMessage(result.invalid_rows ? 'Validation found issues to fix.' : 'CSV looks good. Ready to import.');
+      setMessage(
+        result.invalid_rows
+          ? 'Validation found issues to fix.'
+          : 'CSV looks good. Ready to import.',
+      );
     }
     setBusy(null);
   }
@@ -209,13 +237,27 @@ export default function StorePage() {
           <p className="text-sm uppercase tracking-[0.25em] text-indigo-300/80">Store onboarding</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">CSV Product Upload</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-            Upload a product catalog, validate each row, and import products into inventory and search.
+            Upload a product catalog, validate each row, and import products into inventory and
+            search.
           </p>
         </div>
-        <Link href="/dashboard" className="inline-flex w-fit items-center rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800">
+        <Link
+          href="/dashboard"
+          className="inline-flex w-fit items-center rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800"
+        >
           Back to overview
         </Link>
       </div>
+
+      {assignedStoreName && (
+        <div className="rounded-2xl bg-indigo-600/10 border border-indigo-500/20 px-5 py-3 text-sm text-indigo-300 flex items-center gap-3">
+          <span className="h-2 w-2 rounded-full bg-indigo-400" />
+          <span>
+            Importing catalog specifically for your store:{' '}
+            <strong className="text-white">{assignedStoreName}</strong>
+          </span>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-4">
         {[
@@ -224,7 +266,10 @@ export default function StorePage() {
           { label: 'Imported products', value: importResult?.imported_count ?? '—' },
           { label: 'Validation errors', value: validation?.invalid_rows ?? '—' },
         ].map((card) => (
-          <div key={card.label} className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20 backdrop-blur">
+          <div
+            key={card.label}
+            className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20 backdrop-blur"
+          >
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">{card.label}</p>
             <p className="mt-3 text-3xl font-semibold text-white">{card.value}</p>
           </div>
@@ -236,7 +281,9 @@ export default function StorePage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">Upload catalog</h2>
-              <p className="mt-1 text-sm text-zinc-400">Drop a CSV file or paste content from a spreadsheet export.</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                Drop a CSV file or paste content from a spreadsheet export.
+              </p>
             </div>
             <button
               type="button"
@@ -250,9 +297,7 @@ export default function StorePage() {
 
           <div
             className={`mt-6 rounded-3xl border border-dashed px-6 py-8 transition ${
-              isDragging
-                ? 'border-indigo-400 bg-indigo-500/10'
-                : 'border-zinc-700 bg-zinc-900/60'
+              isDragging ? 'border-indigo-400 bg-indigo-500/10' : 'border-zinc-700 bg-zinc-900/60'
             }`}
             onDragOver={(event) => {
               event.preventDefault();
@@ -263,7 +308,9 @@ export default function StorePage() {
           >
             <div className="flex flex-col gap-4 text-center">
               <div>
-                <p className="text-base font-medium text-zinc-100">Drag and drop your CSV file here</p>
+                <p className="text-base font-medium text-zinc-100">
+                  Drag and drop your CSV file here
+                </p>
                 <p className="mt-1 text-sm text-zinc-500">or choose a file below</p>
               </div>
               <input
@@ -301,15 +348,7 @@ export default function StorePage() {
             </button>
           </div>
 
-          <div className="mt-4">
-            <label className="block text-sm text-zinc-400">Store name for this import</label>
-            <input
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="e.g. 'Level 1 - Shoe Outlet'"
-              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
-            />
-          </div>
+          {/* Managed Store Admin Account - No store name select option */}
 
           <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 text-sm text-zinc-300">
             {message}
@@ -323,9 +362,13 @@ export default function StorePage() {
               <table className="min-w-full divide-y divide-zinc-800 text-sm">
                 <thead className="bg-zinc-950 text-zinc-400">
                   <tr>
-                    {['ID', 'Name', 'Category', 'Brand', 'Price', 'Stock', 'Status'].map((column) => (
-                      <th key={column} className="px-4 py-3 text-left font-medium">{column}</th>
-                    ))}
+                    {['ID', 'Name', 'Category', 'Brand', 'Price', 'Stock', 'Status'].map(
+                      (column) => (
+                        <th key={column} className="px-4 py-3 text-left font-medium">
+                          {column}
+                        </th>
+                      ),
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800 bg-zinc-950/60 text-zinc-200">
@@ -338,7 +381,9 @@ export default function StorePage() {
                       <td className="px-4 py-3">{row.price ?? '—'}</td>
                       <td className="px-4 py-3">{row.stock ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.status === 'valid' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.status === 'valid' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300'}`}
+                        >
                           {row.status}
                         </span>
                       </td>
@@ -361,19 +406,50 @@ export default function StorePage() {
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 backdrop-blur">
             <h2 className="text-lg font-semibold text-white">Validation summary</h2>
             <div className="mt-4 space-y-3 text-sm text-zinc-300">
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Total rows</span><span className="font-medium text-white">{validation?.total_rows ?? '—'}</span></div>
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Valid rows</span><span className="font-medium text-emerald-300">{validation?.valid_rows ?? '—'}</span></div>
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Invalid rows</span><span className="font-medium text-red-300">{validation?.invalid_rows ?? '—'}</span></div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Total rows</span>
+                <span className="font-medium text-white">{validation?.total_rows ?? '—'}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Valid rows</span>
+                <span className="font-medium text-emerald-300">
+                  {validation?.valid_rows ?? '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Invalid rows</span>
+                <span className="font-medium text-red-300">{validation?.invalid_rows ?? '—'}</span>
+              </div>
             </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 backdrop-blur">
             <h2 className="text-lg font-semibold text-white">Import summary</h2>
             <div className="mt-4 space-y-3 text-sm text-zinc-300">
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Imported products</span><span className="font-medium text-white">{importResult?.imported_count ?? '—'}</span></div>
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Failed rows</span><span className="font-medium text-red-300">{importResult?.failed_count ?? '—'}</span></div>
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Inventory created</span><span className="font-medium text-white">{importResult?.inventory_created ?? '—'}</span></div>
-              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3"><span>Search index updated</span><span className="font-medium text-emerald-300">{importResult?.search_index_updated ? 'Yes' : '—'}</span></div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Imported products</span>
+                <span className="font-medium text-white">
+                  {importResult?.imported_count ?? '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Failed rows</span>
+                <span className="font-medium text-red-300">
+                  {importResult?.failed_count ?? '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Inventory created</span>
+                <span className="font-medium text-white">
+                  {importResult?.inventory_created ?? '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-zinc-950/60 px-4 py-3">
+                <span>Search index updated</span>
+                <span className="font-medium text-emerald-300">
+                  {importResult?.search_index_updated ? 'Yes' : '—'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -392,9 +468,16 @@ export default function StorePage() {
               <h2 className="text-lg font-semibold text-white">Validation errors</h2>
               <div className="mt-4 space-y-3">
                 {validation.errors.map((error, index) => (
-                  <div key={`${error.row}-${error.field}-${index}`} className="rounded-xl bg-zinc-950/60 px-4 py-3">
-                    <p className="font-medium text-white">Row {error.row}: {error.message}</p>
-                    <p className="text-red-200/80">Field: {error.field} • Code: {error.code}</p>
+                  <div
+                    key={`${error.row}-${error.field}-${index}`}
+                    className="rounded-xl bg-zinc-950/60 px-4 py-3"
+                  >
+                    <p className="font-medium text-white">
+                      Row {error.row}: {error.message}
+                    </p>
+                    <p className="text-red-200/80">
+                      Field: {error.field} • Code: {error.code}
+                    </p>
                   </div>
                 ))}
               </div>
