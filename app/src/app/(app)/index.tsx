@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Pressable,
   RefreshControl,
@@ -55,6 +56,24 @@ interface Zone {
   capacity: number;
 }
 
+interface StoreListItem {
+  id: string;
+  name: string;
+  description: string;
+  floor: number;
+  unit_number: string;
+  zone?: { id: string; name: string; floor: number } | null;
+  category?: { id: string; name: string } | null;
+}
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  body: string;
+  is_read: boolean;
+  created_at: string;
+}
+
 const OFFERS = [
   { store: 'Zara', discount: '15% Off', code: 'ZARA15', category: 'Fashion' },
   { store: 'H&M', discount: '20% Off', code: 'HM20', category: 'Clothing' },
@@ -78,7 +97,9 @@ export default function HomeScreen() {
 
   // Stable ref so effects don't re-fire when Clerk rotates getToken reference
   const getTokenRef = useRef(getToken);
-  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
   // State Hooks
   const [refreshing, setRefreshing] = useState(false);
@@ -94,7 +115,91 @@ export default function HomeScreen() {
   const [isLoadingZones, setIsLoadingZones] = useState(false);
   const [claimedOffers, setClaimedOffers] = useState<Record<string, boolean>>({});
 
+  // Navigation Sidebar States
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const sidebarAnim = useRef(new Animated.Value(-270)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isSidebarOpen) {
+      Animated.parallel([
+        Animated.timing(sidebarAnim, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(sidebarAnim, {
+          toValue: -270,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isSidebarOpen, sidebarAnim, backdropAnim]);
+  const [currentView, setCurrentView] = useState<
+    'home' | 'stores' | 'offers' | 'congestion' | 'history' | 'search' | 'notifications'
+  >('home');
+
+  // Search filter states for subpages
+  const [offersSearchQuery, setOffersSearchQuery] = useState('');
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
+
+  // Explore Stores States
+  const [storesList, setStoresList] = useState<StoreListItem[]>([]);
+  const [isLoadingStores, setIsLoadingStores] = useState(false);
+  const [storeSearchQuery, setStoreSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [likedStores, setLikedStores] = useState<Record<string, boolean>>({});
+
+  // Notifications States
+  const [notificationsList, setNotificationsList] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
+
   // Fetch initial data once — Redux TTL prevents re-fetching on remount
+  const fetchAllStores = useCallback(async () => {
+    try {
+      setIsLoadingStores(true);
+      const stores = await apiFetch<StoreListItem[]>('/api/v1/stores');
+      setStoresList(stores || []);
+    } catch {
+      setStoresList([]);
+    } finally {
+      setIsLoadingStores(false);
+    }
+  }, [apiFetch]);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setIsLoadingNotifications(true);
+      const res = await apiFetch<{
+        items: NotificationItem[];
+        total: number;
+        unread_count: number;
+      }>('/api/v1/notifications/me');
+      setNotificationsList(res.items || []);
+      setUnreadCount(res.unread_count || 0);
+    } catch {
+      setNotificationsList([]);
+      setUnreadCount(0);
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  }, [apiFetch]);
+
   useEffect(() => {
     (async () => {
       const token = await getTokenRef.current();
@@ -102,21 +207,39 @@ export default function HomeScreen() {
       dispatch(fetchHistoryThunk({ token, limit: 15 }));
       dispatch(fetchStoresThunk({ token }));
     })();
-  }, [dispatch]); // dispatch is stable — effect runs once
+    fetchAllStores();
+    fetchNotifications();
+  }, [dispatch, fetchAllStores, fetchNotifications]);
+
+  const fetchHistory = useCallback(async () => {
+    const token = await getTokenRef.current();
+    if (!token) return;
+    dispatch(fetchHistoryThunk({ token, limit: 15 }));
+  }, [dispatch]);
 
   const recordActivity = useCallback(
     async (
       eventType: 'search' | 'feature_usage',
       payload: { query?: string; feature?: string; metadata?: Record<string, unknown> },
     ) => {
+      const token = await getTokenRef.current();
+      if (!token) return;
       try {
-        const token = await getTokenRef.current();
-        if (token) dispatch(recordActivityThunk({ token, event_type: eventType, ...payload }));
+        await dispatch(
+          recordActivityThunk({
+            token,
+            event_type: eventType,
+            query: payload.query || undefined,
+            feature: payload.feature || undefined,
+            metadata: payload.metadata || undefined,
+          }),
+        ).unwrap();
+        fetchHistory(); // Refresh history immediately
       } catch {
         // Fail silently
       }
     },
-    [dispatch],
+    [dispatch, fetchHistory],
   );
 
   const handleClearHistory = async () => {
@@ -126,9 +249,10 @@ export default function HomeScreen() {
         text: 'Clear All',
         style: 'destructive',
         onPress: async () => {
+          const token = await getTokenRef.current();
+          if (!token) return;
           try {
-            const token = await getTokenRef.current();
-            if (token) dispatch(clearHistoryThunk({ token }));
+            await dispatch(clearHistoryThunk({ token })).unwrap();
           } catch {
             Alert.alert('Error', 'Failed to clear history log.');
           }
@@ -139,11 +263,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    const token = await getTokenRef.current();
-    await Promise.all([
-      token ? dispatch(fetchHistoryThunk({ token, limit: 15, force: true })) : Promise.resolve(),
-      token ? dispatch(fetchStoresThunk({ token, force: true })) : Promise.resolve(),
-    ]);
+    await Promise.all([fetchHistory(), fetchAllStores(), fetchNotifications()]);
     setRefreshing(false);
   };
 
@@ -170,8 +290,8 @@ export default function HomeScreen() {
   };
 
   // Search actions
-  const handleSearch = async () => {
-    const query = searchQuery.trim();
+  const handleSearch = async (overrideQuery?: string) => {
+    const query = (overrideQuery !== undefined ? overrideQuery : searchQuery).trim();
     if (!query) return;
 
     try {
@@ -200,7 +320,7 @@ export default function HomeScreen() {
 
   // Congestion Map Action
   const handleShowCongestionMap = async () => {
-    setActiveModal('congestion');
+    setCurrentView('congestion');
     setIsLoadingZones(true);
     try {
       await recordActivity('feature_usage', { feature: 'congestion_map' });
@@ -215,8 +335,14 @@ export default function HomeScreen() {
 
   // Targeted Offers Action
   const handleShowTargetedOffers = async () => {
-    setActiveModal('offers');
+    setCurrentView('offers');
     await recordActivity('feature_usage', { feature: 'targeted_offers' });
+  };
+
+  // Semantic Search Action
+  const handleShowSemanticSearch = async () => {
+    setCurrentView('search');
+    await recordActivity('feature_usage', { feature: 'semantic_search_page' });
   };
 
   const handleClaimOffer = async (offer: (typeof OFFERS)[0]) => {
@@ -236,6 +362,85 @@ export default function HomeScreen() {
     } catch {
       // Fail silently
     }
+  };
+
+  const handleDeleteHistoryItem = useCallback(
+    async (itemId: string) => {
+      Alert.alert(
+        'Delete Item',
+        'Would you like to delete this activity log item from your history?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              const token = await getTokenRef.current();
+              if (!token) return;
+              try {
+                await apiFetch(`/api/v1/users/me/history/${itemId}`, {
+                  method: 'DELETE',
+                });
+                dispatch(fetchHistoryThunk({ token, limit: 15 }));
+              } catch {
+                Alert.alert('Error', 'Failed to delete history item.');
+              }
+            },
+          },
+        ],
+      );
+    },
+    [apiFetch, dispatch],
+  );
+
+  const toggleFavoriteStore = (storeId: string) => {
+    setLikedStores((prev) => ({
+      ...prev,
+      [storeId]: !prev[storeId],
+    }));
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await apiFetch('/api/v1/notifications/me/read', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      await fetchNotifications();
+    } catch {
+      Alert.alert('Error', 'Failed to mark notifications as read.');
+    }
+  };
+
+  const handleMarkSingleAsRead = async (id: string) => {
+    try {
+      await apiFetch(`/api/v1/notifications/me/read/${id}`, {
+        method: 'POST',
+      });
+      await fetchNotifications();
+    } catch {
+      // Fail silently
+    }
+  };
+
+  const handleDeleteNotification = (id: string) => {
+    Alert.alert('Delete Notification', 'Are you sure you want to delete this notification?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiFetch(`/api/v1/notifications/me/${id}`, {
+              method: 'DELETE',
+            });
+            await fetchNotifications();
+          } catch {
+            Alert.alert('Error', 'Failed to delete notification.');
+          }
+        },
+      },
+    ]);
   };
 
   const formatHistoryItem = (item: ActivityItem) => {
@@ -268,21 +473,58 @@ export default function HomeScreen() {
     };
   };
 
-  const showMenuAlert = () => {
-    Alert.alert(
-      'RetailCortex Menu',
-      'This menu grants quick access to Mall Directories, Store Maps, Profile Settings, and Customer Support in a future update.',
-      [{ text: 'Close', style: 'default' }],
-    );
-  };
-
-  const firstName = user?.firstName || user?.username || 'Michael';
+  const firstName = user?.firstName || user?.username || 'Samarth';
   const avatarUrl = user?.imageUrl;
+
+  // Filter stores logic
+  const filteredStores = storesList.filter((s) => {
+    const match = storeSearchQuery.toLowerCase();
+    const matchesSearch =
+      s.name.toLowerCase().includes(match) ||
+      s.description.toLowerCase().includes(match) ||
+      !!s.category?.name?.toLowerCase().includes(match);
+
+    if (selectedCategory === 'All') return matchesSearch;
+    if (selectedCategory === 'Trending') return matchesSearch && s.floor === 1; // Mock trending
+    return matchesSearch && s.category?.name === selectedCategory;
+  });
+
+  // Unique categories list
+  const categoryChips = [
+    'All',
+    'Trending',
+    ...Array.from(new Set(storesList.map((s) => s.category?.name).filter(Boolean))),
+  ] as string[];
+
+  // Featured stores list fallback
+  const featuredStores = storesList.filter((s) => s.floor === 1).slice(0, 4);
 
   return (
     <ThemedView style={styles.root}>
       {/* Top Left Radial Glow */}
-      <View style={styles.radialGlow} pointerEvents="none" />
+      <View
+        style={[
+          styles.radialGlow,
+          (currentView === 'stores' ||
+            currentView === 'congestion' ||
+            currentView === 'notifications') && {
+            backgroundColor: '#B19FFB',
+            shadowColor: '#B19FFB',
+            opacity: 0.08,
+          },
+          currentView === 'offers' && {
+            backgroundColor: '#FFB7D5',
+            shadowColor: '#FFB7D5',
+            opacity: 0.08,
+          },
+          (currentView === 'history' || currentView === 'search') && {
+            backgroundColor: '#C5FF3B',
+            shadowColor: '#C5FF3B',
+            opacity: 0.08,
+          },
+        ]}
+        pointerEvents="none"
+      />
 
       {/* Topographic Lines Background */}
       <View style={styles.contoursContainer} pointerEvents="none">
@@ -330,136 +572,305 @@ export default function HomeScreen() {
         />
       </View>
 
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
-          }
-        >
-          {/* Header Row */}
-          <View style={styles.headerRow}>
-            <Pressable onPress={showMenuAlert} style={styles.menuBtn}>
-              <View style={styles.menuLine} />
-              <View style={[styles.menuLine, { marginVertical: 4 }]} />
-              <View style={styles.menuLine} />
-            </Pressable>
+      {/* Left Navigation Sidebar Drawer Backdrop */}
+      <Animated.View
+        pointerEvents={isSidebarOpen ? 'auto' : 'none'}
+        style={[
+          styles.sidebarOverlay,
+          {
+            opacity: backdropAnim,
+          },
+        ]}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsSidebarOpen(false)} />
+      </Animated.View>
 
-            <ThemedText style={styles.userNameText}>Hi,{firstName}- 👋</ThemedText>
+      {/* Left Navigation Sidebar Drawer */}
+      <Animated.View
+        style={[
+          styles.sidebarContainer,
+          {
+            transform: [{ translateX: sidebarAnim }],
+          },
+        ]}
+      >
+        {/* Radial Glow Inside Sidebar */}
+        <View style={styles.sidebarGlow} pointerEvents="none" />
+        <View style={styles.sidebarGlowBottom} pointerEvents="none" />
 
-            <Pressable onPress={showSignOutAlert} style={styles.avatarBtn}>
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <ThemedText style={styles.avatarFallbackText}>
-                    {firstName[0]?.toUpperCase() || '?'}
-                  </ThemedText>
-                </View>
-              )}
-            </Pressable>
-          </View>
+        <View style={styles.sidebarHeader}>
+          <ThemedText style={styles.sidebarTitle}>RetailCortex Hub</ThemedText>
+          <ThemedText style={styles.sidebarSubtitle}>
+            {user?.primaryEmailAddress?.emailAddress || 'Guest account'}
+          </ThemedText>
+        </View>
 
-          {/* Greeting Hero */}
-          <View style={styles.greetingContainer}>
-            <ThemedText style={styles.heroGreeting}>How may I help{'\n'}you today?</ThemedText>
-          </View>
+        <View style={styles.sidebarNavList}>
+          {/* Nav Home */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'home' && { backgroundColor: 'rgba(197, 255, 59, 0.12)' },
+            ]}
+            onPress={() => {
+              setCurrentView('home');
+              setIsSidebarOpen(false);
+            }}
+          >
+            <SymbolView
+              name={{ ios: 'house', android: 'home', web: 'home' }}
+              size={18}
+              tintColor="#C5FF3B"
+            />
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'home'
+                  ? { color: '#C5FF3B', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Home
+            </ThemedText>
+          </Pressable>
 
-          {/* Live Search Input Bar */}
-          <View style={styles.searchBarContainer}>
+          {/* Nav Stores */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'stores' && { backgroundColor: 'rgba(177, 159, 251, 0.12)' },
+            ]}
+            onPress={() => {
+              setCurrentView('stores');
+              setIsSidebarOpen(false);
+            }}
+          >
+            <SymbolView
+              name={{ ios: 'bag', android: 'storefront', web: 'storefront' }}
+              size={18}
+              tintColor="#B19FFB"
+            />
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'stores'
+                  ? { color: '#B19FFB', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Stores
+            </ThemedText>
+          </Pressable>
+
+          {/* Nav Semantic Search */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'search' && { backgroundColor: 'rgba(197, 255, 59, 0.12)' },
+            ]}
+            onPress={() => {
+              setCurrentView('search');
+              setIsSidebarOpen(false);
+              recordActivity('feature_usage', { feature: 'semantic_search_page' });
+            }}
+          >
             <SymbolView
               name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
               size={18}
-              tintColor="#8A8A8F"
+              tintColor="#C5FF3B"
             />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search products, brands, stores..."
-              placeholderTextColor="#60646C"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              onSubmitEditing={handleSearch}
-              returnKeyType="search"
-            />
-            {searchQuery ? (
-              <Pressable onPress={clearSearch} style={styles.clearSearchBtn}>
-                <SymbolView
-                  name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
-                  size={16}
-                  tintColor="#8A8A8F"
-                />
-              </Pressable>
-            ) : null}
-          </View>
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'search'
+                  ? { color: '#C5FF3B', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Semantic Search
+            </ThemedText>
+          </Pressable>
 
-          {/* Conditional Layout: Search Results OR Main Features */}
-          {hasSearched ? (
-            <View style={styles.searchResultsSection}>
-              <View style={styles.sectionHeaderRow}>
-                <ThemedText style={styles.sectionTitle}>
-                  Search Results for "{searchQuery}"
-                </ThemedText>
-                <Pressable onPress={clearSearch} style={styles.closeSearchBtn}>
-                  <ThemedText style={styles.closeSearchBtnText}>Close</ThemedText>
+          {/* Nav Offers */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'offers' && { backgroundColor: 'rgba(255, 183, 213, 0.12)' },
+            ]}
+            onPress={() => {
+              setIsSidebarOpen(false);
+              handleShowTargetedOffers();
+            }}
+          >
+            <SymbolView
+              name={{ ios: 'tag', android: 'sell', web: 'sell' }}
+              size={18}
+              tintColor="#FFB7D5"
+            />
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'offers'
+                  ? { color: '#FFB7D5', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Offers
+            </ThemedText>
+          </Pressable>
+
+          {/* Nav Congestion Map */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'congestion' && { backgroundColor: 'rgba(177, 159, 251, 0.12)' },
+            ]}
+            onPress={() => {
+              setIsSidebarOpen(false);
+              handleShowCongestionMap();
+            }}
+          >
+            <SymbolView
+              name={{ ios: 'map', android: 'map', web: 'map' }}
+              size={18}
+              tintColor="#B19FFB"
+            />
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'congestion'
+                  ? { color: '#B19FFB', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Live Congestion
+            </ThemedText>
+          </Pressable>
+
+          {/* Nav Notifications */}
+          <Pressable
+            style={[
+              styles.sidebarNavItem,
+              currentView === 'notifications' && { backgroundColor: 'rgba(177, 159, 251, 0.12)' },
+            ]}
+            onPress={() => {
+              setCurrentView('notifications');
+              setIsSidebarOpen(false);
+            }}
+          >
+            <SymbolView
+              name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+              size={18}
+              tintColor="#B19FFB"
+            />
+            <ThemedText
+              style={[
+                styles.sidebarNavItemText,
+                currentView === 'notifications'
+                  ? { color: '#B19FFB', fontWeight: '700' }
+                  : { color: '#E0E1E6' },
+              ]}
+            >
+              Notifications
+            </ThemedText>
+            {unreadCount > 0 && (
+              <View style={styles.sidebarUnreadBadge}>
+                <ThemedText style={styles.sidebarUnreadBadgeText}>{unreadCount}</ThemedText>
+              </View>
+            )}
+          </Pressable>
+
+          <View style={{ flex: 1 }} />
+
+          {/* Nav Sign Out */}
+          <Pressable
+            style={[styles.sidebarNavItem, { backgroundColor: 'rgba(255,59,48,0.08)' }]}
+            onPress={() => {
+              setIsSidebarOpen(false);
+              showSignOutAlert();
+            }}
+          >
+            <SymbolView
+              name={{
+                ios: 'rectangle.portrait.and.arrow.right',
+                android: 'logout',
+                web: 'logout',
+              }}
+              size={18}
+              tintColor="#FF3B30"
+            />
+            <ThemedText style={[styles.sidebarNavItemText, { color: '#FF3B30' }]}>
+              Sign Out
+            </ThemedText>
+          </Pressable>
+        </View>
+      </Animated.View>
+
+      {/* Main Layout Switcher */}
+      {currentView === 'home' ? (
+        /* VIEW 1: HOME PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.headerRow}>
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {/* Notification bell button with count */}
+                <Pressable
+                  style={styles.exploreBellBtn}
+                  onPress={() => setCurrentView('notifications')}
+                >
+                  <SymbolView
+                    name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+                    size={20}
+                    tintColor="#ffffff"
+                  />
+                  {unreadCount > 0 && (
+                    <View style={styles.exploreBellBadge}>
+                      <ThemedText style={styles.exploreBellBadgeText}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </ThemedText>
+                    </View>
+                  )}
+                </Pressable>
+
+                <Pressable onPress={showSignOutAlert} style={styles.avatarBtn}>
+                  {avatarUrl ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <ThemedText style={styles.avatarFallbackText}>
+                        {firstName[0]?.toUpperCase() || '?'}
+                      </ThemedText>
+                    </View>
+                  )}
                 </Pressable>
               </View>
-
-              {isSearching ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color="#C5FF3B" />
-                  <ThemedText style={styles.loadingText}>
-                    Intelligent Search processing...
-                  </ThemedText>
-                </View>
-              ) : searchResults.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <ThemedText style={styles.emptyText}>
-                    No products matching "{searchQuery}" found. Try another brand or typo.
-                  </ThemedText>
-                </View>
-              ) : (
-                <View style={styles.resultsList}>
-                  {searchResults.map((product) => (
-                    <View key={product.id} style={styles.productCard}>
-                      <View style={styles.productHeader}>
-                        <View style={styles.productMainInfo}>
-                          <ThemedText style={styles.productName}>{product.name}</ThemedText>
-                          <ThemedText style={styles.productStore}>
-                            📍 {storeMap[product.store_id] || 'Unknown Store'}
-                          </ThemedText>
-                        </View>
-                        <ThemedText style={styles.productPrice}>
-                          ${Number(product.price).toFixed(2)}
-                        </ThemedText>
-                      </View>
-                      <ThemedText style={styles.productDesc}>{product.description}</ThemedText>
-                      {product.tags && product.tags.length > 0 && (
-                        <View style={styles.tagsContainer}>
-                          {product.tags.map((tag) => (
-                            <View key={tag} style={styles.tagBadge}>
-                              <ThemedText style={styles.tagBadgeText}>{tag}</ThemedText>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              )}
             </View>
-          ) : (
-            /* Main Grid Features Cards */
+
+            {/* Greeting Hero */}
+            <View style={styles.greetingContainer}>
+              <ThemedText style={styles.heroGreetingPrefix}>Hi, {firstName} 👋</ThemedText>
+              <ThemedText style={styles.heroGreeting}>How may I help{'\n'}you today?</ThemedText>
+            </View>
+
+            {/* Main Grid Features Cards */}
             <View style={styles.gridContainer}>
               {/* Left Card: Semantic Search (Neon Lime Green) */}
               <Pressable
                 style={({ pressed }) => [styles.largeCard, { opacity: pressed ? 0.9 : 1.0 }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Semantic Search',
-                    'Find products instantly across every store in the mall using the search input bar above.\n\nHandles typos, synonyms, multi-category matching, and vague intent.',
-                  );
-                }}
+                onPress={handleShowSemanticSearch}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.iconCircle}>
@@ -527,109 +938,656 @@ export default function HomeScreen() {
                       tintColor="#000000"
                     />
                   </View>
-                  <ThemedText style={styles.smallCardTitle}>Targeted Offers</ThemedText>
+                  <ThemedText style={styles.smallCardTitle}>Offers</ThemedText>
                 </Pressable>
               </View>
             </View>
-          )}
+            {/* History Header */}
+            <View style={styles.historyHeader}>
+              <ThemedText style={styles.historyTitle}>History</ThemedText>
+              {history.length > 0 && (
+                <Pressable onPress={() => setCurrentView('history')}>
+                  <ThemedText style={styles.seeAllText}>See all</ThemedText>
+                </Pressable>
+              )}
+            </View>
 
-          {/* History Header */}
-          <View style={styles.historyHeader}>
-            <ThemedText style={styles.historyTitle}>History</ThemedText>
-            {history.length > 0 && (
-              <Pressable onPress={handleClearHistory}>
-                <ThemedText style={styles.seeAllText}>Clear all</ThemedText>
-              </Pressable>
-            )}
-          </View>
-
-          {/* History List */}
-          <View style={styles.historyList}>
-            {historyStatus === 'loading' ? (
-              <ActivityIndicator size="small" color="#8A8A8F" style={{ marginVertical: 10 }} />
-            ) : history.length === 0 ? (
-              <View style={styles.emptyHistory}>
-                <ThemedText style={styles.emptyHistoryText}>
-                  No activities recorded yet. Search above or claim offers to build your history
-                  log.
-                </ThemedText>
-              </View>
-            ) : (
-              history.map((item) => {
-                const formatted = formatHistoryItem(item);
-                return (
-                  <View key={item.id} style={styles.historyItem}>
-                    <View style={[styles.historyIconCircle, { backgroundColor: formatted.color }]}>
-                      <SymbolView
-                        name={{ ios: formatted.icon, android: 'label', web: 'label' }}
-                        size={16}
-                        tintColor="#000000"
-                      />
+            {/* History List */}
+            <View style={styles.historyList}>
+              {historyStatus === 'loading' ? (
+                <ActivityIndicator size="small" color="#8A8A8F" style={{ marginVertical: 10 }} />
+              ) : history.length === 0 ? (
+                <View style={styles.emptyHistory}>
+                  <ThemedText style={styles.emptyHistoryText}>
+                    No activities recorded yet. Use Semantic Search or claim offers to build your
+                    history log.
+                  </ThemedText>
+                </View>
+              ) : (
+                history.slice(0, 3).map((item) => {
+                  const formatted = formatHistoryItem(item);
+                  return (
+                    <View key={item.id} style={styles.historyItem}>
+                      <View
+                        style={[styles.historyIconCircle, { backgroundColor: formatted.color }]}
+                      >
+                        <SymbolView
+                          name={{ ios: formatted.icon, android: 'label', web: 'label' }}
+                          size={16}
+                          tintColor="#000000"
+                        />
+                      </View>
+                      <ThemedText style={styles.historyItemText} numberOfLines={1}>
+                        {formatted.text}
+                      </ThemedText>
+                      <View style={styles.historyRightCol}>
+                        <ThemedText style={styles.historyItemTime}>
+                          {new Date(item.created_at).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </ThemedText>
+                        <Pressable
+                          style={styles.historyMoreBtn}
+                          onPress={() => handleDeleteHistoryItem(item.id)}
+                        >
+                          <SymbolView
+                            name={{ ios: 'ellipsis', android: 'more_vert', web: 'more_vert' }}
+                            size={14}
+                            tintColor="#60646C"
+                          />
+                        </Pressable>
+                      </View>
                     </View>
-                    <ThemedText style={styles.historyItemText} numberOfLines={1}>
-                      {formatted.text}
-                    </ThemedText>
-                    <ThemedText style={styles.historyItemTime}>
-                      {new Date(item.created_at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </ThemedText>
-                  </View>
-                );
-              })
-            )}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-
-      {/* MODAL SHEET: Live Congestion Map Overlay */}
-      {activeModal === 'congestion' && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Pressable style={styles.modalOverlay} onPress={() => setActiveModal(null)} />
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalTitle}>Live Congestion Map</ThemedText>
-              <Pressable onPress={() => setActiveModal(null)} style={styles.modalCloseBtn}>
+                  );
+                })
+              )}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'stores' ? (
+        /* VIEW 2: EXPLORE STORES PAGE VIEW (Mockup layout in dark mode) */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Mockup Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable onPress={() => setCurrentView('home')} style={styles.exploreBackBtn}>
                 <SymbolView
-                  name={{ ios: 'xmark', android: 'close', web: 'close' }}
-                  size={18}
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
                   tintColor="#ffffff"
                 />
               </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Explore stores
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Notification bell button with count */}
+              <Pressable
+                style={styles.exploreBellBtn}
+                onPress={() => setCurrentView('notifications')}
+              >
+                <SymbolView
+                  name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+                {unreadCount > 0 && (
+                  <View style={styles.exploreBellBadge}>
+                    <ThemedText style={styles.exploreBellBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </ThemedText>
+                  </View>
+                )}
+              </Pressable>
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
             </View>
 
+            {/* Search Input */}
+            <View style={styles.exploreSearchContainer}>
+              <SymbolView
+                name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+                size={18}
+                tintColor="#8A8A8F"
+              />
+              <TextInput
+                style={styles.exploreSearchInput}
+                placeholder="Search stores, brands, categories..."
+                placeholderTextColor="#60646C"
+                value={storeSearchQuery}
+                onChangeText={setStoreSearchQuery}
+              />
+              {storeSearchQuery ? (
+                <Pressable onPress={() => setStoreSearchQuery('')} style={styles.clearSearchBtn}>
+                  <SymbolView
+                    name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+                    size={16}
+                    tintColor="#8A8A8F"
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* Chips Scrollbar */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipsScroll}
+            >
+              {categoryChips.map((cat) => {
+                const isActive = selectedCategory === cat;
+                return (
+                  <Pressable
+                    key={cat}
+                    style={[styles.chipBtn, isActive && styles.chipBtnActive]}
+                    onPress={() => setSelectedCategory(cat)}
+                  >
+                    <ThemedText style={[styles.chipText, isActive && styles.chipTextActive]}>
+                      {cat}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {/* Featured Section (Horizontal carousel matching NFT cards) */}
+            {selectedCategory === 'All' && (
+              <>
+                <ThemedText style={styles.featuredHeader}>Featured</ThemedText>
+                {isLoadingStores ? (
+                  <ActivityIndicator size="small" color="#B19FFB" style={{ marginVertical: 20 }} />
+                ) : featuredStores.length === 0 ? (
+                  <ThemedText style={styles.modalEmptyText}>No featured retailers.</ThemedText>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.featuredScroll}
+                  >
+                    {featuredStores.map((store, idx) => {
+                      const hash =
+                        store.name.charCodeAt(0) + store.name.charCodeAt(store.name.length - 1);
+                      const likes = (hash % 9) * 200 + 1200; // Mock likes e.g. 1.8k
+                      const views = (hash % 15) * 1.2 + 8.5; // Mock views e.g. 10.5k
+
+                      // Alternate colors matching homepage
+                      const cardBgColor =
+                        idx % 3 === 0 ? '#C5FF3B' : idx % 3 === 1 ? '#B19FFB' : '#FFB7D5';
+
+                      return (
+                        <View
+                          key={store.id}
+                          style={[styles.featuredCard, { backgroundColor: cardBgColor }]}
+                        >
+                          {/* Card Header Row */}
+                          <View style={styles.featuredCardHeader}>
+                            <View style={styles.featuredPillLeft}>
+                              <ThemedText style={styles.featuredPillText}>
+                                📍 Floor {store.floor}
+                              </ThemedText>
+                            </View>
+                            <View style={styles.featuredStatsRight}>
+                              <View style={styles.featuredStatPill}>
+                                <ThemedText style={styles.featuredStatText}>
+                                  👁️ {views.toFixed(1)}k
+                                </ThemedText>
+                              </View>
+                              <View style={styles.featuredStatPill}>
+                                <ThemedText style={styles.featuredStatText}>
+                                  ❤️ {likes / 1000}k
+                                </ThemedText>
+                              </View>
+                            </View>
+                          </View>
+
+                          {/* Card Body */}
+                          <View style={styles.featuredCardBody}>
+                            <ThemedText style={styles.featuredCardName}>{store.name}</ThemedText>
+                            <ThemedText style={styles.featuredCardDesc} numberOfLines={2}>
+                              {store.description ||
+                                'Intelligent Shopping & Smart Retailer experience.'}
+                            </ThemedText>
+                          </View>
+
+                          {/* Card Footer Bid Actions */}
+                          <View style={styles.featuredCardFooter}>
+                            <Pressable
+                              style={styles.exploreBtn}
+                              onPress={() =>
+                                Alert.alert(
+                                  store.name,
+                                  `Floor: ${store.floor}\nUnit: ${store.unit_number}\n\n${store.description || `Welcome to ${store.name}`}`,
+                                )
+                              }
+                            >
+                              <ThemedText style={styles.exploreBtnText}>Visit Store</ThemedText>
+                              <SymbolView
+                                name={{
+                                  ios: 'arrow.up.right',
+                                  android: 'north_east',
+                                  web: 'north_east',
+                                }}
+                                size={12}
+                                tintColor="#ffffff"
+                              />
+                            </Pressable>
+                            <Pressable
+                              style={styles.seeProductsBtn}
+                              onPress={async () => {
+                                // Populate query bar and search
+                                setSearchQuery(store.name);
+                                setCurrentView('home');
+                                setActiveModal(null);
+                                // Fake a minor delay to let search load
+                                setTimeout(async () => {
+                                  try {
+                                    setIsSearching(true);
+                                    setHasSearched(true);
+                                    const res = await apiFetch<{
+                                      success: boolean;
+                                      data: Product[];
+                                    }>(
+                                      `/api/v1/products/search?q=${encodeURIComponent(store.name)}`,
+                                    );
+                                    setSearchResults(res.data || []);
+                                    await recordActivity('search', { query: store.name });
+                                  } catch {
+                                    // Fail silently
+                                  } finally {
+                                    setIsSearching(false);
+                                  }
+                                }, 300);
+                              }}
+                            >
+                              <ThemedText style={styles.seeProductsBtnText}>Products</ThemedText>
+                            </Pressable>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </>
+            )}
+
+            {/* Trending Now / Directory List Section */}
+            <View style={styles.trendingHeaderRow}>
+              <ThemedText style={styles.trendingTitle}>Trending now</ThemedText>
+              <Pressable
+                onPress={() => {
+                  setSelectedCategory('All');
+                  setStoreSearchQuery('');
+                }}
+              >
+                <ThemedText style={styles.trendingSeeAll}>See all</ThemedText>
+              </Pressable>
+            </View>
+
+            {isLoadingStores ? (
+              <ActivityIndicator size="small" color="#C5FF3B" />
+            ) : filteredStores.length === 0 ? (
+              <ThemedText style={styles.modalEmptyText}>No retailers found.</ThemedText>
+            ) : (
+              <View style={styles.trendingList}>
+                {filteredStores.map((store, idx) => {
+                  const isLiked = !!likedStores[store.id];
+                  const accentColor =
+                    idx % 3 === 0 ? '#C5FF3B' : idx % 3 === 1 ? '#B19FFB' : '#FFB7D5';
+                  return (
+                    <View
+                      key={store.id}
+                      style={[styles.trendingStoreCard, { borderLeftColor: accentColor }]}
+                    >
+                      <View style={styles.trendingCardHeader}>
+                        <View>
+                          <ThemedText style={styles.trendingStoreTitle}>{store.name}</ThemedText>
+                          <ThemedText style={styles.trendingStoreSub}>
+                            {store.category?.name || 'Retailer'} • Floor {store.floor}, Unit{' '}
+                            {store.unit_number || 'N/A'}
+                          </ThemedText>
+                        </View>
+                        {/* Heart Favorite Toggle Button */}
+                        <Pressable
+                          style={styles.favoriteBtn}
+                          onPress={() => toggleFavoriteStore(store.id)}
+                        >
+                          <SymbolView
+                            name={{
+                              ios: isLiked ? 'heart.fill' : 'heart',
+                              android: isLiked ? 'favorite' : 'favorite_border',
+                              web: isLiked ? 'favorite' : 'favorite_border',
+                            }}
+                            size={16}
+                            tintColor={isLiked ? '#FF3B30' : '#8A8A8F'}
+                          />
+                        </Pressable>
+                      </View>
+                      <ThemedText style={styles.trendingStoreDesc}>
+                        {store.description ||
+                          'Welcome back to RetailCortex Mall directory storefront.'}
+                      </ThemedText>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'offers' ? (
+        /* VIEW 3: TARGETED OFFERS PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable onPress={() => setCurrentView('home')} style={styles.exploreBackBtn}>
+                <SymbolView
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+              </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Offers
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Notification bell button with count */}
+              <Pressable
+                style={styles.exploreBellBtn}
+                onPress={() => setCurrentView('notifications')}
+              >
+                <SymbolView
+                  name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+                {unreadCount > 0 && (
+                  <View style={styles.exploreBellBadge}>
+                    <ThemedText style={styles.exploreBellBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </ThemedText>
+                  </View>
+                )}
+              </Pressable>
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+            </View>
+
+            {/* Sub-info text */}
+            <ThemedText style={styles.offersInfoText}>
+              Exclusive campaigns generated in real-time based on your proximity sensors and
+              browsing history.
+            </ThemedText>
+
+            {/* Search Input */}
+            <View style={styles.exploreSearchContainer}>
+              <SymbolView
+                name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+                size={18}
+                tintColor="#8A8A8F"
+              />
+              <TextInput
+                style={styles.exploreSearchInput}
+                placeholder="Search deals, stores, categories..."
+                placeholderTextColor="#60646C"
+                value={offersSearchQuery}
+                onChangeText={setOffersSearchQuery}
+              />
+              {offersSearchQuery ? (
+                <Pressable onPress={() => setOffersSearchQuery('')} style={styles.clearSearchBtn}>
+                  <SymbolView
+                    name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+                    size={16}
+                    tintColor="#8A8A8F"
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* Exclusive Deals (Horizontal Scroll Carousel) */}
+            <ThemedText style={styles.featuredHeader}>Exclusive Deals</ThemedText>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.featuredScroll}
+            >
+              {OFFERS.filter((offer) => {
+                const match = offersSearchQuery.toLowerCase();
+                return (
+                  offer.store.toLowerCase().includes(match) ||
+                  offer.discount.toLowerCase().includes(match) ||
+                  offer.category.toLowerCase().includes(match)
+                );
+              })
+                .slice(0, 3)
+                .map((offer, idx) => {
+                  const isClaimed = !!claimedOffers[offer.code];
+                  const cardBgColor = idx % 2 === 0 ? '#FFB7D5' : '#B19FFB';
+                  return (
+                    <View
+                      key={offer.code}
+                      style={[styles.offerPageCard, { backgroundColor: cardBgColor }]}
+                    >
+                      <View style={styles.offerPageCardHeader}>
+                        <View style={styles.offerPagePill}>
+                          <ThemedText style={styles.offerPagePillText}>{offer.category}</ThemedText>
+                        </View>
+                        <ThemedText style={styles.offerPageExpiryText}>Expires in 3h</ThemedText>
+                      </View>
+
+                      <View style={styles.offerPageCardBody}>
+                        <ThemedText style={styles.offerPageCardStore}>{offer.store}</ThemedText>
+                        <ThemedText style={styles.offerPageCardDiscount}>
+                          {offer.discount}
+                        </ThemedText>
+                      </View>
+
+                      <View style={styles.offerPageCardFooter}>
+                        <Pressable
+                          style={[
+                            styles.offerPageClaimBtn,
+                            isClaimed && styles.offerPageClaimedBtn,
+                          ]}
+                          onPress={() => handleClaimOffer(offer)}
+                          disabled={isClaimed}
+                        >
+                          <ThemedText
+                            style={[
+                              styles.offerPageClaimBtnText,
+                              isClaimed && styles.offerPageClaimedBtnText,
+                            ]}
+                          >
+                            {isClaimed ? 'Claimed ✓' : 'Claim Offer'}
+                          </ThemedText>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+            </ScrollView>
+
+            {/* All Offers (Vertical List) */}
+            <ThemedText style={styles.trendingTitle}>All offers</ThemedText>
+            <View style={[styles.trendingList, { marginTop: 16 }]}>
+              {OFFERS.filter((offer) => {
+                const match = offersSearchQuery.toLowerCase();
+                return (
+                  offer.store.toLowerCase().includes(match) ||
+                  offer.discount.toLowerCase().includes(match) ||
+                  offer.category.toLowerCase().includes(match)
+                );
+              }).map((offer) => {
+                const isClaimed = !!claimedOffers[offer.code];
+                return (
+                  <View key={offer.code} style={styles.offerPageListCard}>
+                    <View style={styles.offerPageListCardHeader}>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText style={styles.offerPageListStore}>{offer.store}</ThemedText>
+                        <ThemedText style={styles.offerPageListDiscount}>
+                          {offer.discount}
+                        </ThemedText>
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 8,
+                            marginTop: 6,
+                          }}
+                        >
+                          <View style={styles.offerPageListCategoryBadge}>
+                            <ThemedText style={styles.offerPageListCategoryText}>
+                              {offer.category}
+                            </ThemedText>
+                          </View>
+                          <ThemedText style={styles.offerPageListExpiry}>Active deal</ThemedText>
+                        </View>
+                      </View>
+
+                      <Pressable
+                        style={[styles.offerListClaimBtn, isClaimed && styles.offerListClaimedBtn]}
+                        onPress={() => handleClaimOffer(offer)}
+                        disabled={isClaimed}
+                      >
+                        <ThemedText
+                          style={[
+                            styles.offerListClaimBtnText,
+                            isClaimed && styles.offerListClaimedBtnText,
+                          ]}
+                        >
+                          {isClaimed ? 'Claimed ✓' : 'Claim'}
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+
+                    {isClaimed && (
+                      <View style={styles.offerPageCodeBox}>
+                        <ThemedText style={styles.offerPageCodeLabel}>
+                          Show code at checkout:
+                        </ThemedText>
+                        <ThemedText style={styles.offerPageCodeText}>{offer.code}</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'congestion' ? (
+        /* VIEW 4: LIVE CONGESTION PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable onPress={() => setCurrentView('home')} style={styles.exploreBackBtn}>
+                <SymbolView
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+              </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Live congestion
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Notification bell button with count */}
+              <Pressable
+                style={styles.exploreBellBtn}
+                onPress={() => setCurrentView('notifications')}
+              >
+                <SymbolView
+                  name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+                {unreadCount > 0 && (
+                  <View style={styles.exploreBellBadge}>
+                    <ThemedText style={styles.exploreBellBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </ThemedText>
+                  </View>
+                )}
+              </Pressable>
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+            </View>
+
+            {/* Info text */}
+            <ThemedText style={styles.offersInfoText}>
+              Live occupant density statistics calculated in real-time across shopping zones to
+              guide your path.
+            </ThemedText>
+
             {isLoadingZones ? (
-              <View style={styles.modalLoading}>
+              <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="#B19FFB" />
-                <ThemedText style={styles.modalLoadingText}>
-                  Syncing zone density values...
+                <ThemedText style={styles.loadingText}>
+                  Syncing zone sensor capacities...
                 </ThemedText>
               </View>
             ) : zonesList.length === 0 ? (
-              <ThemedText style={styles.modalEmptyText}>
-                No active congestion data found.
-              </ThemedText>
+              <View style={styles.emptyContainer}>
+                <ThemedText style={styles.emptyText}>No zone data currently available.</ThemedText>
+              </View>
             ) : (
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-                <ThemedText style={styles.modalInfoText}>
-                  Below is real-time crowd density monitored by zone sensors to plan your route.
-                </ThemedText>
+              <View style={{ gap: 12 }}>
                 {zonesList.map((zone) => {
                   const hash = zone.name.charCodeAt(0) + zone.name.charCodeAt(zone.name.length - 1);
-                  const occupancy = (hash % 85) + 10; // occupancy between 10% and 95%
-                  let barColor = '#4CD964'; // Low density green
+                  const occupancy = (hash % 85) + 10;
+                  let barColor = '#4CD964';
                   let densityLabel = 'Low Density';
                   if (occupancy > 75) {
-                    barColor = '#FF3B30'; // Critical red
+                    barColor = '#FF3B30';
                     densityLabel = 'Critical (Heavy Queues)';
                   } else if (occupancy > 45) {
-                    barColor = '#FFCC00'; // Moderate yellow
+                    barColor = '#FFCC00';
                     densityLabel = 'Moderate Crowds';
                   }
 
                   return (
-                    <View key={zone.id} style={styles.zoneCard}>
+                    <View key={zone.id} style={styles.congestionPageCard}>
                       <View style={styles.zoneHeader}>
                         <View>
                           <ThemedText style={styles.zoneName}>{zone.name}</ThemedText>
@@ -639,6 +1597,7 @@ export default function HomeScreen() {
                           {densityLabel}
                         </ThemedText>
                       </View>
+
                       <View style={styles.progressContainer}>
                         <View
                           style={[
@@ -647,6 +1606,7 @@ export default function HomeScreen() {
                           ]}
                         />
                       </View>
+
                       <View style={styles.zoneFooter}>
                         <ThemedText style={styles.zoneCapacityText}>
                           Cap: {zone.capacity} occupants
@@ -656,71 +1616,483 @@ export default function HomeScreen() {
                     </View>
                   );
                 })}
-              </ScrollView>
+              </View>
             )}
-          </View>
-        </View>
-      )}
-
-      {/* MODAL SHEET: Targeted Offers Overlay */}
-      {activeModal === 'offers' && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Pressable style={styles.modalOverlay} onPress={() => setActiveModal(null)} />
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalTitle}>Targeted Offers</ThemedText>
-              <Pressable onPress={() => setActiveModal(null)} style={styles.modalCloseBtn}>
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'history' ? (
+        /* VIEW 5: ACTIVITY HISTORY PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable onPress={() => setCurrentView('home')} style={styles.exploreBackBtn}>
                 <SymbolView
-                  name={{ ios: 'xmark', android: 'close', web: 'close' }}
-                  size={18}
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
                   tintColor="#ffffff"
                 />
               </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Activity history
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
             </View>
 
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              <ThemedText style={styles.modalInfoText}>
-                Personalized campaigns generated from your location and browsing history:
-              </ThemedText>
-              {OFFERS.map((offer) => {
-                const isClaimed = claimedOffers[offer.code];
-                return (
-                  <View key={offer.code} style={styles.offerCard}>
-                    <View style={styles.offerMain}>
-                      <View style={styles.offerDetails}>
-                        <View style={styles.offerCategoryBadge}>
-                          <ThemedText style={styles.offerCategoryText}>{offer.category}</ThemedText>
-                        </View>
-                        <ThemedText style={styles.offerStoreName}>{offer.store}</ThemedText>
-                        <ThemedText style={styles.offerDiscount}>{offer.discount}</ThemedText>
-                      </View>
-                      <Pressable
-                        style={[styles.claimBtn, isClaimed && styles.claimedBtn]}
-                        onPress={() => handleClaimOffer(offer)}
-                        disabled={isClaimed}
-                      >
-                        <ThemedText
-                          style={[styles.claimBtnText, isClaimed && styles.claimedBtnText]}
+            {/* Search Input */}
+            <View style={styles.historySearchContainer}>
+              <SymbolView
+                name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+                size={18}
+                tintColor="#8A8A8F"
+              />
+              <TextInput
+                style={styles.historySearchInput}
+                placeholder="Search history log..."
+                placeholderTextColor="#60646C"
+                value={historySearchQuery}
+                onChangeText={setHistorySearchQuery}
+              />
+              {historySearchQuery ? (
+                <Pressable onPress={() => setHistorySearchQuery('')} style={styles.clearSearchBtn}>
+                  <SymbolView
+                    name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+                    size={16}
+                    tintColor="#8A8A8F"
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* History List Header */}
+            <View style={[styles.historyHeader, { marginTop: 8, marginBottom: 16 }]}>
+              <ThemedText style={styles.historyTitle}>Log entries</ThemedText>
+              {history.length > 0 && (
+                <Pressable onPress={handleClearHistory}>
+                  <ThemedText style={{ color: '#FF3B30', fontSize: 14, fontWeight: '700' }}>
+                    Clear all
+                  </ThemedText>
+                </Pressable>
+              )}
+            </View>
+
+            {/* History List */}
+            <View style={styles.historyList}>
+              {historyStatus === 'loading' ? (
+                <ActivityIndicator size="small" color="#C5FF3B" style={{ marginVertical: 20 }} />
+              ) : history.filter((item) => {
+                  const match = historySearchQuery.toLowerCase();
+                  const formatted = formatHistoryItem(item);
+                  return (
+                    formatted.text.toLowerCase().includes(match) ||
+                    item.event_type.toLowerCase().includes(match) ||
+                    item.feature?.toLowerCase().includes(match) ||
+                    item.query?.toLowerCase().includes(match)
+                  );
+                }).length === 0 ? (
+                <View style={styles.emptyHistory}>
+                  <ThemedText style={styles.emptyHistoryText}>
+                    No activities matching search found.
+                  </ThemedText>
+                </View>
+              ) : (
+                history
+                  .filter((item) => {
+                    const match = historySearchQuery.toLowerCase();
+                    const formatted = formatHistoryItem(item);
+                    return (
+                      formatted.text.toLowerCase().includes(match) ||
+                      item.event_type.toLowerCase().includes(match) ||
+                      item.feature?.toLowerCase().includes(match) ||
+                      item.query?.toLowerCase().includes(match)
+                    );
+                  })
+                  .map((item) => {
+                    const formatted = formatHistoryItem(item);
+                    return (
+                      <View key={item.id} style={styles.historyItem}>
+                        <View
+                          style={[styles.historyIconCircle, { backgroundColor: formatted.color }]}
                         >
-                          {isClaimed ? 'Claimed ✓' : 'Claim'}
+                          <SymbolView
+                            name={{ ios: formatted.icon, android: 'label', web: 'label' }}
+                            size={16}
+                            tintColor="#000000"
+                          />
+                        </View>
+                        <ThemedText style={styles.historyItemText} numberOfLines={1}>
+                          {formatted.text}
                         </ThemedText>
-                      </Pressable>
-                    </View>
-                    {isClaimed && (
-                      <View style={styles.offerCodeRow}>
-                        <ThemedText style={styles.offerCodeLabel}>
-                          Use Promo Code at checkout:
-                        </ThemedText>
-                        <ThemedText style={styles.offerCodeText}>{offer.code}</ThemedText>
+                        <View style={styles.historyRightCol}>
+                          <ThemedText style={styles.historyItemTime}>
+                            {new Date(item.created_at).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </ThemedText>
+                          <Pressable
+                            style={styles.historyMoreBtn}
+                            onPress={() => handleDeleteHistoryItem(item.id)}
+                          >
+                            <SymbolView
+                              name={{ ios: 'ellipsis', android: 'more_vert', web: 'more_vert' }}
+                              size={14}
+                              tintColor="#60646C"
+                            />
+                          </Pressable>
+                        </View>
                       </View>
-                    )}
+                    );
+                  })
+              )}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'search' ? (
+        /* VIEW 6: SEMANTIC SEARCH PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable
+                onPress={() => {
+                  setCurrentView('home');
+                  clearSearch();
+                }}
+                style={styles.exploreBackBtn}
+              >
+                <SymbolView
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+              </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Semantic search
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Notification bell button with count */}
+              <Pressable
+                style={styles.exploreBellBtn}
+                onPress={() => setCurrentView('notifications')}
+              >
+                <SymbolView
+                  name={{ ios: 'bell.fill', android: 'notifications', web: 'notifications' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+                {unreadCount > 0 && (
+                  <View style={styles.exploreBellBadge}>
+                    <ThemedText style={styles.exploreBellBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </ThemedText>
                   </View>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      )}
+                )}
+              </Pressable>
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+            </View>
+
+            {/* Description/Intro */}
+            <View style={styles.searchIntroContainer}>
+              <ThemedText style={styles.searchIntroText}>
+                Find products instantly across every store in the mall using AI. Handles typos,
+                synonyms, multi-category matching, and vague intent.
+              </ThemedText>
+            </View>
+
+            {/* Live Search Input Bar */}
+            <View
+              style={[
+                styles.searchBarContainer,
+                { borderColor: 'rgba(197, 255, 59, 0.4)', borderWidth: 1 },
+              ]}
+            >
+              <SymbolView
+                name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
+                size={18}
+                tintColor="#8A8A8F"
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Type what you're looking for..."
+                placeholderTextColor="#60646C"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmitEditing={() => handleSearch()}
+                returnKeyType="search"
+              />
+              {searchQuery ? (
+                <Pressable onPress={clearSearch} style={styles.clearSearchBtn}>
+                  <SymbolView
+                    name={{ ios: 'xmark.circle.fill', android: 'cancel', web: 'cancel' }}
+                    size={16}
+                    tintColor="#8A8A8F"
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {/* Quick search chips */}
+            <View style={styles.chipsSection}>
+              <ThemedText style={styles.chipsSectionTitle}>Quick search chips</ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScroll}
+              >
+                {['Footwear', 'Summer Fashion', 'iPhone', 'Running shoes', 'Hoodies', 'Sale'].map(
+                  (chip) => (
+                    <Pressable
+                      key={chip}
+                      style={styles.chipBtn}
+                      onPress={() => {
+                        setSearchQuery(chip);
+                        handleSearch(chip);
+                      }}
+                    >
+                      <ThemedText style={[styles.chipText, { color: '#C5FF3B' }]}>
+                        {chip}
+                      </ThemedText>
+                    </Pressable>
+                  ),
+                )}
+              </ScrollView>
+            </View>
+
+            {/* Search Results / Status */}
+            {hasSearched ? (
+              <View style={styles.searchResultsSection}>
+                <View style={styles.sectionHeaderRow}>
+                  <ThemedText style={styles.sectionTitle}>
+                    Search Results for "{searchQuery}"
+                  </ThemedText>
+                  <Pressable onPress={clearSearch} style={styles.closeSearchBtn}>
+                    <ThemedText style={styles.closeSearchBtnText}>Clear</ThemedText>
+                  </Pressable>
+                </View>
+
+                {isSearching ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#C5FF3B" />
+                    <ThemedText style={styles.loadingText}>
+                      Intelligent Search processing...
+                    </ThemedText>
+                  </View>
+                ) : searchResults.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <ThemedText style={styles.emptyText}>
+                      No products matching "{searchQuery}" found. Try another search.
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <View style={styles.resultsList}>
+                    {searchResults.map((product) => (
+                      <View
+                        key={product.id}
+                        style={[styles.productCard, { borderColor: '#C5FF3B', borderWidth: 1.5 }]}
+                      >
+                        <View style={styles.productHeader}>
+                          <View style={styles.productMainInfo}>
+                            <ThemedText style={styles.productName}>{product.name}</ThemedText>
+                            <ThemedText style={styles.productStore}>
+                              📍 {storeMap[product.store_id] || 'Unknown Store'}
+                            </ThemedText>
+                          </View>
+                          <ThemedText style={styles.productPrice}>
+                            ${Number(product.price).toFixed(2)}
+                          </ThemedText>
+                        </View>
+                        <ThemedText style={styles.productDesc}>{product.description}</ThemedText>
+                        {product.tags && product.tags.length > 0 && (
+                          <View style={styles.tagsContainer}>
+                            {product.tags.map((tag) => (
+                              <View key={tag} style={styles.tagBadge}>
+                                <ThemedText style={styles.tagBadgeText}>{tag}</ThemedText>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View style={styles.searchEmptyState}>
+                <SymbolView
+                  name={{ ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' }}
+                  size={48}
+                  tintColor="#C5FF3B"
+                  style={{ opacity: 0.8, marginBottom: 16 }}
+                />
+                <ThemedText style={styles.searchEmptyText}>
+                  Try searching for vague terms like "something warm for winter" or specific
+                  products like "sneakers".
+                </ThemedText>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'notifications' ? (
+        /* VIEW 7: NOTIFICATIONS PAGE VIEW */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />
+            }
+          >
+            {/* Header Row */}
+            <View style={styles.exploreHeader}>
+              <Pressable
+                onPress={() => {
+                  setCurrentView('home');
+                }}
+                style={styles.exploreBackBtn}
+              >
+                <SymbolView
+                  name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }}
+                  size={20}
+                  tintColor="#ffffff"
+                />
+              </Pressable>
+
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>
+                Notifications
+              </ThemedText>
+
+              <View style={{ flex: 1 }} />
+
+              {/* Hamburger menu trigger */}
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+            </View>
+
+            {/* Subheader: unread status + action to mark all as read */}
+            <View style={styles.notificationsSubHeader}>
+              <ThemedText style={styles.notificationsCountText}>
+                {unreadCount === 0 ? 'No unread notifications' : `${unreadCount} unread`}
+              </ThemedText>
+
+              {unreadCount > 0 && (
+                <Pressable onPress={handleMarkAllAsRead}>
+                  <ThemedText style={styles.markAllReadText}>Mark all as read</ThemedText>
+                </Pressable>
+              )}
+            </View>
+
+            {/* Notifications List */}
+            <View style={styles.notificationsListContainer}>
+              {isLoadingNotifications ? (
+                <ActivityIndicator size="small" color="#8A8A8F" style={{ marginVertical: 40 }} />
+              ) : notificationsList.length === 0 ? (
+                <View style={styles.notificationsEmptyState}>
+                  <SymbolView
+                    name={{
+                      ios: 'bell.slash.fill',
+                      android: 'notifications_off',
+                      web: 'notifications_off',
+                    }}
+                    size={48}
+                    tintColor="#B19FFB"
+                    style={{ opacity: 0.8, marginBottom: 16 }}
+                  />
+                  <ThemedText style={styles.notificationsEmptyText}>
+                    You're all caught up! No notifications yet.
+                  </ThemedText>
+                </View>
+              ) : (
+                notificationsList.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={[
+                      styles.notificationCard,
+                      !item.is_read && styles.notificationCardUnread,
+                    ]}
+                    onPress={() => !item.is_read && handleMarkSingleAsRead(item.id)}
+                  >
+                    <View style={styles.notificationLeftAccent}>
+                      <SymbolView
+                        name={{
+                          ios: item.is_read ? 'bell' : 'bell.fill',
+                          android: item.is_read ? 'notifications_none' : 'notifications_active',
+                          web: item.is_read ? 'notifications_none' : 'notifications_active',
+                        }}
+                        size={20}
+                        tintColor={item.is_read ? '#60646C' : '#B19FFB'}
+                      />
+                    </View>
+                    <View style={styles.notificationContent}>
+                      <View style={styles.notificationHeaderRow}>
+                        <ThemedText
+                          style={[
+                            styles.notificationTitle,
+                            !item.is_read && styles.notificationTitleUnread,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </ThemedText>
+                        <ThemedText style={styles.notificationTime}>
+                          {new Date(item.created_at).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </ThemedText>
+                      </View>
+                      <ThemedText style={styles.notificationBody}>{item.body}</ThemedText>
+                    </View>
+                    <Pressable
+                      style={styles.notificationDeleteBtn}
+                      onPress={() => handleDeleteNotification(item.id)}
+                    >
+                      <SymbolView
+                        name={{ ios: 'trash', android: 'delete', web: 'delete' }}
+                        size={16}
+                        tintColor="#FF6B6B"
+                      />
+                    </Pressable>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      ) : null}
     </ThemedView>
   );
 }
@@ -739,7 +2111,7 @@ const styles = StyleSheet.create({
     height: 300,
     borderRadius: 150,
     backgroundColor: '#C5FF3B',
-    opacity: 0.08,
+    opacity: 0.06,
     shadowColor: '#C5FF3B',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1.0,
@@ -822,6 +2194,14 @@ const styles = StyleSheet.create({
   greetingContainer: {
     marginTop: Spacing.three,
     marginBottom: Spacing.two,
+  },
+  heroGreetingPrefix: {
+    fontSize: 32,
+    fontWeight: '300',
+    color: 'rgba(255, 255, 255, 0.7)',
+    lineHeight: 38,
+    letterSpacing: -0.5,
+    marginBottom: 4,
   },
   heroGreeting: {
     fontSize: 38,
@@ -1258,6 +2638,716 @@ const styles = StyleSheet.create({
   offerCodeText: {
     fontSize: 13,
     color: '#C5FF3B',
+    fontWeight: '700',
+  },
+
+  // History More/Deletion styling
+  historyRightCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  historyMoreBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+
+  // Left Sidebar Navigation drawer styling
+  sidebarOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    zIndex: 999,
+  },
+  sidebarContainer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 270,
+    backgroundColor: '#0C0D0E',
+    padding: 24,
+    paddingTop: 64,
+    zIndex: 1000,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255, 255, 255, 0.05)',
+    overflow: 'hidden',
+  },
+  sidebarGlow: {
+    position: 'absolute',
+    top: -50,
+    left: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#B19FFB',
+    opacity: 0.12,
+    zIndex: -1,
+  },
+  sidebarGlowBottom: {
+    position: 'absolute',
+    bottom: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#C5FF3B',
+    opacity: 0.08,
+    zIndex: -1,
+  },
+  sidebarHeader: {
+    marginBottom: 32,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    paddingBottom: 20,
+    zIndex: 2,
+  },
+  sidebarTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  sidebarSubtitle: {
+    fontSize: 13,
+    color: '#8A8A8F',
+    marginTop: 4,
+  },
+  sidebarNavList: {
+    flex: 1,
+    gap: 8,
+    zIndex: 2,
+  },
+  sidebarNavItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    gap: 12,
+  },
+  sidebarNavItemActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  sidebarNavItemText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#8A8A8F',
+  },
+  sidebarNavItemTextActive: {
+    color: '#ffffff',
+  },
+
+  // Explore Stores mockup page styling
+  exploreHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: Spacing.four,
+    gap: 12,
+  },
+  exploreBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exploreHeaderTitle: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+    lineHeight: 34,
+    paddingTop: 6,
+  },
+  exploreBellBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  exploreBellBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exploreBellBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  exploreSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 24,
+  },
+  exploreSearchInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 15,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+  chipsScroll: {
+    marginBottom: 24,
+  },
+  chipBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginRight: 8,
+  },
+  chipBtnActive: {
+    backgroundColor: '#B19FFB',
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8A8A8F',
+  },
+  chipTextActive: {
+    color: '#000000',
+    fontWeight: '700',
+  },
+  featuredHeader: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+    marginBottom: 16,
+  },
+  featuredScroll: {
+    marginBottom: 32,
+  },
+  featuredCard: {
+    width: 240,
+    height: 290,
+    borderRadius: 28,
+    padding: 16,
+    justifyContent: 'space-between',
+    marginRight: 16,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  featuredCardBgGlow: {
+    position: 'absolute',
+    top: -50,
+    left: -50,
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    opacity: 0.1,
+    zIndex: -1,
+  },
+  featuredCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  featuredPillLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  featuredPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  featuredStatsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  featuredStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  featuredStatText: {
+    fontSize: 11,
+    color: 'rgba(0, 0, 0, 0.65)',
+    fontWeight: '700',
+  },
+  featuredCardBody: {
+    marginTop: 20,
+    flex: 1,
+  },
+  featuredCardName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#000000',
+  },
+  featuredCardDesc: {
+    fontSize: 12,
+    color: 'rgba(0, 0, 0, 0.65)',
+    marginTop: 4,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  featuredCardFooter: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+  },
+  exploreBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#000000',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  exploreBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  seeProductsBtn: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.15)',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  seeProductsBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  trendingHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  trendingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  trendingSeeAll: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8A8A8F',
+  },
+  trendingList: {
+    gap: 12,
+  },
+  trendingStoreCard: {
+    backgroundColor: '#151618',
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderLeftWidth: 5,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  trendingCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  trendingStoreTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  trendingStoreSub: {
+    fontSize: 12,
+    color: '#B19FFB',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  favoriteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trendingStoreDesc: {
+    fontSize: 13,
+    color: '#8A8A8F',
+    lineHeight: 18,
+  },
+  searchIntroContainer: {
+    paddingHorizontal: 4,
+    marginBottom: 16,
+  },
+  searchIntroText: {
+    fontSize: 15,
+    color: '#8A8A8F',
+    lineHeight: 22,
+    fontWeight: '400',
+  },
+  chipsSection: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  chipsSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    textTransform: 'uppercase',
+    letterSpacing: 1.0,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  searchEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  searchEmptyText: {
+    fontSize: 15,
+    color: '#8A8A8F',
+    textAlign: 'center',
+    lineHeight: 22,
+    fontWeight: '400',
+  },
+
+  // Offers subpage stylesheet additions
+  offerPageCard: {
+    width: 240,
+    height: 290,
+    borderRadius: 28,
+    padding: 16,
+    justifyContent: 'space-between',
+    marginRight: 16,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  offerPageCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  offerPagePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  offerPagePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  offerPageExpiryText: {
+    fontSize: 11,
+    color: 'rgba(0, 0, 0, 0.65)',
+    fontWeight: '700',
+  },
+  offerPageCardBody: {
+    marginTop: 20,
+    flex: 1,
+  },
+  offerPageCardStore: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#000000',
+  },
+  offerPageCardDiscount: {
+    fontSize: 12,
+    color: 'rgba(0, 0, 0, 0.65)',
+    marginTop: 4,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  offerPageCardFooter: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  offerPageClaimBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#000000',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  offerPageClaimedBtn: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  },
+  offerPageClaimBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  offerPageClaimedBtnText: {
+    color: 'rgba(0, 0, 0, 0.4)',
+  },
+  offerPageListCard: {
+    backgroundColor: '#151618',
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 12,
+  },
+  offerPageListCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  offerPageListStore: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  offerPageListDiscount: {
+    fontSize: 14,
+    color: '#8A8A8F',
+    marginTop: 2,
+  },
+  offerPageListCategoryBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  offerPageListCategoryText: {
+    fontSize: 11,
+    color: '#FFB7D5',
+    fontWeight: '700',
+  },
+  offerPageListExpiry: {
+    fontSize: 12,
+    color: '#4CD964',
+    fontWeight: '600',
+  },
+  offerListClaimBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#FFB7D5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offerListClaimedBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  offerListClaimBtnText: {
+    fontSize: 14,
+    color: '#000000',
+    fontWeight: '700',
+  },
+  offerListClaimedBtnText: {
+    color: '#8A8A8F',
+  },
+  offerPageCodeBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  offerPageCodeLabel: {
+    fontSize: 12,
+    color: '#8A8A8F',
+  },
+  offerPageCodeText: {
+    fontSize: 13,
+    color: '#C5FF3B',
+    fontWeight: '700',
+  },
+  offersInfoText: {
+    fontSize: 15,
+    color: '#8A8A8F',
+    lineHeight: 22,
+    fontWeight: '400',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+
+  // Congestion subpage stylesheet additions
+  congestionPageCard: {
+    backgroundColor: '#151618',
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 12,
+  },
+
+  // History subpage stylesheet additions
+  historySearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 24,
+  },
+  historySearchInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 15,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+
+  // Notifications subpage styles
+  notificationsSubHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: 16,
+  },
+  notificationsCountText: {
+    fontSize: 14,
+    color: '#8A8A8F',
+    fontWeight: '400',
+  },
+  markAllReadText: {
+    fontSize: 14,
+    color: '#B19FFB',
+    fontWeight: '600',
+  },
+  testNotificationBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  testNotificationBtnText: {
+    fontSize: 12,
+    color: '#E0E1E6',
+    fontWeight: '500',
+  },
+  notificationsListContainer: {
+    marginBottom: 30,
+  },
+  notificationsEmptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  notificationsEmptyText: {
+    fontSize: 15,
+    color: '#8A8A8F',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  generateTestBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(177, 159, 251, 0.15)',
+    borderWidth: 1,
+    borderColor: '#B19FFB',
+  },
+  generateTestBtnText: {
+    fontSize: 14,
+    color: '#B19FFB',
+    fontWeight: '600',
+  },
+  notificationCard: {
+    flexDirection: 'row',
+    backgroundColor: '#151618',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    alignItems: 'center',
+  },
+  notificationCardUnread: {
+    borderColor: 'rgba(177, 159, 251, 0.3)',
+    backgroundColor: 'rgba(177, 159, 251, 0.04)',
+  },
+  notificationLeftAccent: {
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  notificationTitle: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#8A8A8F',
+    flex: 1,
+    marginRight: 8,
+  },
+  notificationTitleUnread: {
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  notificationTime: {
+    fontSize: 12,
+    color: '#60646C',
+  },
+  notificationBody: {
+    fontSize: 13,
+    color: '#A0A1A6',
+    lineHeight: 18,
+  },
+  notificationDeleteBtn: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  sidebarUnreadBadge: {
+    marginLeft: 'auto',
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sidebarUnreadBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
     fontWeight: '700',
   },
 });
