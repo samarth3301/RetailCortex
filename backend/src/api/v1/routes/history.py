@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.api.deps import get_current_user, require_super_admin
+from src.api.deps import get_db_user, require_super_admin
 from src.db.models.activity import ActivityEventType as DBEventType
 from src.db.models.activity import UserActivity
 from src.db.models.user import User
@@ -31,9 +31,8 @@ def _to_response(row: UserActivity) -> ActivityResponse:
 @router.post("/me/history", response_model=ActivityResponse, status_code=status.HTTP_201_CREATED)
 async def record_activity(
     body: RecordActivityRequest,
-    user: ClerkUser = Depends(get_current_user),
+    db_user: User = Depends(get_db_user),
 ):
-    db_user = await User.get(clerk_id=user.id)
     row = await UserActivity.create(
         user=db_user,
         event_type=DBEventType(body.event_type),
@@ -49,9 +48,8 @@ async def get_my_history(
     event_type: Optional[ActivityEventType] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: ClerkUser = Depends(get_current_user),
+    db_user: User = Depends(get_db_user),
 ):
-    db_user = await User.get(clerk_id=user.id)
     qs = UserActivity.filter(user=db_user)
     if event_type:
         qs = qs.filter(event_type=DBEventType(event_type))
@@ -68,13 +66,23 @@ async def get_my_history(
 @router.delete("/me/history", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_my_history(
     event_type: Optional[ActivityEventType] = Query(None),
-    user: ClerkUser = Depends(get_current_user),
+    db_user: User = Depends(get_db_user),
 ):
-    db_user = await User.get(clerk_id=user.id)
     qs = UserActivity.filter(user=db_user)
     if event_type:
         qs = qs.filter(event_type=DBEventType(event_type))
     await qs.delete()
+
+
+@router.delete("/me/history/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_history_item(
+    activity_id: str,
+    db_user: User = Depends(get_db_user),
+):
+    row = await UserActivity.get_or_none(id=activity_id, user=db_user)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity item not found")
+    await row.delete()
 
 
 @router.get("/{clerk_user_id}/history", response_model=ActivityListResponse)

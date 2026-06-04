@@ -44,10 +44,11 @@ async def get_current_user(
     jwt_role = None
     if "metadata" in payload and isinstance(payload["metadata"], dict):
         jwt_role = payload["metadata"].get("role")
-    
+
     if jwt_role != db_user.role.value:
         try:
             from src.core.clerk import set_user_public_metadata
+
             await set_user_public_metadata(clerk_id, {"role": db_user.role.value})
         except Exception as e:
             # Log the error but don't prevent user access since the DB role is valid
@@ -67,6 +68,13 @@ async def get_current_user(
         store_id=store_id,
         store_name=store_name,
     )
+
+
+async def get_db_user(user: ClerkUser = Depends(get_current_user)) -> User:
+    db_user = await User.get_or_none(clerk_id=user.id)
+    if db_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return db_user
 
 
 def require_role(*roles: UserRole):
