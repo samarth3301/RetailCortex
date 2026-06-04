@@ -1,7 +1,7 @@
 import { useAuth, useUser } from '@clerk/expo';
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,14 +19,21 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useApi } from '@/lib/api';
+import { useAppDispatch, useAppSelector } from '@/store';
+import {
+  clearHistory as clearHistoryThunk,
+  fetchHistory as fetchHistoryThunk,
+  recordActivity as recordActivityThunk,
+} from '@/store/slices/historySlice';
+import { fetchStores as fetchStoresThunk } from '@/store/slices/storesSlice';
 
 // Types matched with FastAPI Models
 interface ActivityItem {
   id: string;
   event_type: 'search' | 'feature_usage';
-  query?: string;
-  feature?: string;
-  metadata?: Record<string, unknown>;
+  query: string | null;
+  feature: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -61,14 +68,19 @@ const OFFERS = [
 ];
 
 export default function HomeScreen() {
-  const { signOut } = useAuth();
+  const { signOut, getToken } = useAuth();
   const { user } = useUser();
   const router = useRouter();
   const { apiFetch } = useApi();
+  const dispatch = useAppDispatch();
+  const { items: history, status: historyStatus } = useAppSelector((s) => s.history);
+  const storeMap = useAppSelector((s) => s.stores.map);
+
+  // Stable ref so effects don't re-fire when Clerk rotates getToken reference
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
   // State Hooks
-  const [history, setHistory] = useState<ActivityItem[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,43 +88,21 @@ export default function HomeScreen() {
   const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
-  const [storeMap, setStoreMap] = useState<Record<string, string>>({});
   const [activeModal, setActiveModal] = useState<'congestion' | 'offers' | null>(null);
 
   const [zonesList, setZonesList] = useState<Zone[]>([]);
   const [isLoadingZones, setIsLoadingZones] = useState(false);
   const [claimedOffers, setClaimedOffers] = useState<Record<string, boolean>>({});
 
-  const fetchStores = useCallback(async () => {
-    try {
-      const stores = await apiFetch<Array<{ id: string; name: string }>>('/api/v1/stores');
-      const map: Record<string, string> = {};
-      for (const s of stores) {
-        map[s.id] = s.name;
-      }
-      setStoreMap(map);
-    } catch {
-      // Fail silently
-    }
-  }, [apiFetch]);
-
-  const fetchHistory = useCallback(async () => {
-    try {
-      setIsLoadingHistory(true);
-      const res = await apiFetch<{ items: ActivityItem[] }>('/api/v1/users/me/history?limit=15');
-      setHistory(res.items || []);
-    } catch {
-      // Fail silently
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }, [apiFetch]);
-
-  // Fetch initial data
+  // Fetch initial data once — Redux TTL prevents re-fetching on remount
   useEffect(() => {
-    fetchHistory();
-    fetchStores();
-  }, [fetchHistory, fetchStores]);
+    (async () => {
+      const token = await getTokenRef.current();
+      if (!token) return;
+      dispatch(fetchHistoryThunk({ token, limit: 15 }));
+      dispatch(fetchStoresThunk({ token }));
+    })();
+  }, [dispatch]); // dispatch is stable — effect runs once
 
   const recordActivity = useCallback(
     async (
@@ -120,19 +110,13 @@ export default function HomeScreen() {
       payload: { query?: string; feature?: string; metadata?: Record<string, unknown> },
     ) => {
       try {
-        await apiFetch('/api/v1/users/me/history', {
-          method: 'POST',
-          body: JSON.stringify({
-            event_type: eventType,
-            ...payload,
-          }),
-        });
-        fetchHistory(); // Refresh history immediately
+        const token = await getTokenRef.current();
+        if (token) dispatch(recordActivityThunk({ token, event_type: eventType, ...payload }));
       } catch {
         // Fail silently
       }
     },
-    [apiFetch, fetchHistory],
+    [dispatch],
   );
 
   const handleClearHistory = async () => {
@@ -143,10 +127,8 @@ export default function HomeScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            await apiFetch('/api/v1/users/me/history', {
-              method: 'DELETE',
-            });
-            setHistory([]);
+            const token = await getTokenRef.current();
+            if (token) dispatch(clearHistoryThunk({ token }));
           } catch {
             Alert.alert('Error', 'Failed to clear history log.');
           }
@@ -157,7 +139,11 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchHistory(), fetchStores()]);
+    const token = await getTokenRef.current();
+    await Promise.all([
+      token ? dispatch(fetchHistoryThunk({ token, limit: 15, force: true })) : Promise.resolve(),
+      token ? dispatch(fetchStoresThunk({ token, force: true })) : Promise.resolve(),
+    ]);
     setRefreshing(false);
   };
 
@@ -559,7 +545,7 @@ export default function HomeScreen() {
 
           {/* History List */}
           <View style={styles.historyList}>
-            {isLoadingHistory ? (
+            {historyStatus === 'loading' ? (
               <ActivityIndicator size="small" color="#8A8A8F" style={{ marginVertical: 10 }} />
             ) : history.length === 0 ? (
               <View style={styles.emptyHistory}>
