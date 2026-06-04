@@ -1,0 +1,12 @@
+.venv
+.pytest_cache
+.ruff_cache
+.env
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.python-version
+tests/
+run_uvicorn.py
+debug_*.py
