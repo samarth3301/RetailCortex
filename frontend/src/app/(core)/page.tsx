@@ -1,8 +1,7 @@
-import { auth } from '@clerk/nextjs/server';
 import Link from 'next/link';
+import { HomeHeaderUser } from '@/components/home-header-user';
 
-export default async function LandingPage() {
-  const { userId } = await auth();
+export default function LandingPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-[#0d0d0d] font-sans text-zinc-100 antialiased selection:bg-white/10 selection:text-white">
@@ -37,29 +36,7 @@ export default async function LandingPage() {
 
           {/* CTA / Auth Actions */}
           <div className="flex items-center gap-4">
-            {userId ? (
-              <Link
-                href="/dashboard"
-                className="inline-flex h-9 items-center justify-center rounded-full bg-white px-5 text-xs font-semibold text-zinc-950 transition-all hover:bg-zinc-200 active:scale-[0.98]"
-              >
-                Go to Dashboard
-              </Link>
-            ) : (
-              <>
-                <Link
-                  href="/sign-in"
-                  className="text-xs font-semibold text-zinc-400 hover:text-white transition-colors px-3 py-1.5"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/sign-up"
-                  className="inline-flex h-9 items-center justify-center rounded-full bg-white px-5 text-xs font-semibold text-zinc-950 transition-all hover:bg-zinc-200 active:scale-[0.98]"
-                >
-                  Get started
-                </Link>
-              </>
-            )}
+            <HomeHeaderUser />
           </div>
         </nav>
       </header>
