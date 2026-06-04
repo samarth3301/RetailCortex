@@ -1,8 +1,7 @@
 import { useAuth } from '@clerk/expo';
-import { Redirect } from 'expo-router';
+import { Redirect, Slot } from 'expo-router';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
 
 export default function AppLayout() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -13,7 +12,7 @@ export default function AppLayout() {
   return (
     <>
       <AnimatedSplashOverlay />
-      <AppTabs />
+      <Slot />
     </>
   );
 }
