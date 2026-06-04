@@ -16,7 +16,7 @@ from src.models.user import ClerkUser
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
 
-GEMINI_MODEL = "gemini-2.0-flash-001"
+GEMINI_MODEL = "gemini-3.5-flash"
 
 SYSTEM_INSTRUCTION = """You are the RetailCortex AI assistant for a smart mall operations platform.
 You help shoppers find products and get live mall status.
