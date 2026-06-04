@@ -117,6 +117,7 @@ export default function StorePage() {
     const syncSelectedFile = () => {
       const selectedFile = input.files?.[0];
       if (selectedFile && selectedFile.name !== fileName) {
+        // eslint-disable-next-line react-hooks/immutability
         void handleFile(selectedFile);
       }
     };
@@ -142,7 +143,7 @@ export default function StorePage() {
 
   async function sendCsv(endpoint: '/api/v1/products/validate-csv' | '/api/v1/products/import') {
     const token = await getToken();
-    const body: any = { csv_content: csvContent };
+    const body: { csv_content: string; store_name?: string } = { csv_content: csvContent };
     if (endpoint === '/api/v1/products/import' && storeName) body.store_name = storeName;
 
     const res = await apiFetch(endpoint, token, {

@@ -17,7 +17,7 @@ class User(BaseModel):
     role = fields.CharEnumField(UserRole, default=UserRole.user)
     store: fields.ForeignKeyRelation = fields.ForeignKeyField(
         "models.Store", related_name="admins", on_delete=fields.SET_NULL, null=True
-    )
+    ) # type: ignore
 
     class Meta:
         table = "users"

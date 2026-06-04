@@ -30,7 +30,7 @@ class FacilityType(str, enum.Enum):
 class FacilityIssue(BaseModel):
     zone: fields.ForeignKeyRelation = fields.ForeignKeyField(
         "models.Zone", related_name="facility_issues", on_delete=fields.SET_NULL, null=True
-    )
+    ) # type: ignore
     title = fields.CharField(max_length=255)
     description = fields.TextField(default="")
     facility_type = fields.CharEnumField(FacilityType, default=FacilityType.other)

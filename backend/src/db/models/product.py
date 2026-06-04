@@ -15,7 +15,7 @@ class Product(BaseModel):
     )
     category: fields.ForeignKeyRelation = fields.ForeignKeyField(
         "models.Category", related_name="products", on_delete=fields.SET_NULL, null=True
-    )
+    ) # type: ignore
 
     class Meta:
         table = "products"
