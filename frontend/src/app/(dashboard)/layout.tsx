@@ -103,9 +103,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Branding */}
         <div className="px-5 pt-6 pb-5 border-b border-white/5">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded bg-white/5 border border-white/10">
-              <span className="text-[10px] font-bold text-white tracking-wider">RC</span>
-            </div>
+            <img src="/Retail_icon.png" alt="RetailCortex Logo" className="h-7 w-7 object-contain" />
             <div>
               <p className="text-sm font-serif font-normal tracking-tight text-white leading-none">RetailCortex</p>
               <p className="text-[9px] font-light text-zinc-600 uppercase tracking-widest mt-0.5">

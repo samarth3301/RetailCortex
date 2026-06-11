@@ -19,6 +19,16 @@ class CongestionEvent(CongestionEventCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CongestionZoneSummary(BaseModel):
+    zone_id: str
+    zone_name: str
+    floor: int
+    capacity: int
+    occupancy: int
+    occupancy_pct: int
+    level: str
+
+
 class FacilityIssueCreate(BaseModel):
     zone_id: str | None = None
     title: str
