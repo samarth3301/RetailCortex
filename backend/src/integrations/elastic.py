@@ -110,6 +110,7 @@ class ElasticIntegration:
         }
 
         try:
+            await _ensure_index(client)
             resp = await client.search(index=settings.elastic_index, body=body)
             return [hit["_source"] for hit in resp["hits"]["hits"]]
         except Exception as exc:

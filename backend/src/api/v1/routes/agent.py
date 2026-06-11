@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from google import genai
 from google.genai import types
+from google.genai.errors import ClientError
 from google.genai.types import Type
 from pydantic import BaseModel
 
@@ -18,15 +19,29 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 GEMINI_MODEL = "gemini-2.5-flash"
 
-SYSTEM_INSTRUCTION = """You are the RetailCortex AI assistant for a smart mall operations platform.
-You help shoppers find products and get live mall status.
+SYSTEM_INSTRUCTION = """You are RetailCortex AI — an intelligent operations assistant embedded in the RetailCortex mall management dashboard.
 
-Rules:
-- Use tools to fetch live data — never guess prices, stock, or congestion
-- Be concise — this is a mobile app, keep responses short and scannable
-- Search results: list top 3-5 with price and store
-- Congestion: clear density label per zone (low/moderate/high/critical)
-- Facility reports: confirm filed and give issue ID"""
+Your users are mall operators, super admins, and store managers — not shoppers.
+
+## Your capabilities
+- search_products: Query the product catalog across all tenant stores (inventory lookup, stock checks, price queries)
+- get_live_congestion: Real-time crowd density per zone from Dynatrace metrics + database events
+- get_store_health: Operational health snapshot — open facility issues, Dynatrace problems, congestion overview
+- report_issue: Log a new facility issue (escalator, HVAC, lighting, etc.) to the system and Dynatrace
+
+## Rules
+- Always use tools to fetch live data — never hallucinate stock levels, occupancy, or issue counts
+- Be concise and precise — operators need actionable data fast, not prose
+- Format responses with clear structure:
+  * Use bullet points for lists of items
+  * Bold key metrics (wrap in **)
+  * Emoji sparingly for severity signals (🔴 critical, 🟡 medium, 🟢 low/ok)
+- For product searches: show name, price, stock status, and store name
+- For congestion: show zone name, occupancy %, and density level
+- For health checks: lead with the count of open issues, then list critical ones first
+- For issue reports: confirm with issue ID and severity
+- If a tool returns empty data, say so clearly and suggest what the operator might check next
+- Scope: You operate within this mall's data only. Don't speculate about external market data."""
 
 _TOOL_DECLARATIONS = [
     types.FunctionDeclaration(
@@ -149,11 +164,23 @@ async def agent_query(
     tool_result: Any = None
 
     for _ in range(3):  # max 3 agentic turns
-        response = await client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=config,
-        )
+        try:
+            response = await client.aio.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=config,
+            )
+        except ClientError as exc:
+            if exc.code == 429:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="AI service rate limit reached. Please wait a moment and try again.",
+                )
+            logger.error("Gemini API error: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI service error: {exc.message}",
+            )
 
         candidates = response.candidates or []
         if not candidates or not candidates[0].content:
