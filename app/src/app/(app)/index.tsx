@@ -309,13 +309,11 @@ export default function HomeScreen() {
     try {
       setIsSearching(true);
       setHasSearched(true);
-
-      const res = await apiFetch<{ success: boolean; data: Product[] }>(
-        `/api/v1/products/search?q=${encodeURIComponent(query)}`,
+      const floorParam = currentFloor !== null ? `&floor=${currentFloor}` : '';
+      const res = await apiFetch<{ success: boolean; data: StoreSearchResult[] }>(
+        `/api/v1/products/search/stores?q=${encodeURIComponent(query)}${floorParam}`,
       );
-      setSearchResults(res.data || []);
-
-      // Record Search Activity Event
+      setStoreResults(res.data || []);
       await recordActivity('search', { query });
     } catch {
       Alert.alert('Search Error', 'Failed to query products. Please check connection.');
@@ -326,6 +324,7 @@ export default function HomeScreen() {
 
   const clearSearch = () => {
     setSearchQuery('');
+    setStoreResults([]);
     setSearchResults([]);
     setHasSearched(false);
   };
@@ -1874,27 +1873,35 @@ export default function HomeScreen() {
               ) : null}
             </View>
 
+            {/* Floor proximity picker */}
+            <View style={styles.chipsSection}>
+              <ThemedText style={styles.chipsSectionTitle}>Your current floor</ThemedText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScroll}>
+                {[null, 1, 2, 3, 4].map((f) => {
+                  const active = currentFloor === f;
+                  return (
+                    <Pressable
+                      key={f ?? 'all'}
+                      style={[styles.chipBtn, active && { backgroundColor: 'rgba(197,255,59,0.15)', borderColor: '#C5FF3B', borderWidth: 1 }]}
+                      onPress={() => setCurrentFloor(f)}
+                    >
+                      <ThemedText style={[styles.chipText, { color: active ? '#C5FF3B' : '#8A8A8F' }]}>
+                        {f === null ? 'All floors' : `Floor ${f}`}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
             {/* Quick search chips */}
             <View style={styles.chipsSection}>
-              <ThemedText style={styles.chipsSectionTitle}>Quick search chips</ThemedText>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipsScroll}
-              >
-                {['Footwear', 'Summer Fashion', 'iPhone', 'Running shoes', 'Hoodies', 'Sale'].map(
+              <ThemedText style={styles.chipsSectionTitle}>Quick search</ThemedText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScroll}>
+                {['Running shoes', 'Wireless earbuds', 'Cold brew coffee', 'Compression tights', 'Hoodies', 'Smartwatch'].map(
                   (chip) => (
-                    <Pressable
-                      key={chip}
-                      style={styles.chipBtn}
-                      onPress={() => {
-                        setSearchQuery(chip);
-                        handleSearch(chip);
-                      }}
-                    >
-                      <ThemedText style={[styles.chipText, { color: '#C5FF3B' }]}>
-                        {chip}
-                      </ThemedText>
+                    <Pressable key={chip} style={styles.chipBtn} onPress={() => { setSearchQuery(chip); handleSearch(chip); }}>
+                      <ThemedText style={[styles.chipText, { color: '#C5FF3B' }]}>{chip}</ThemedText>
                     </Pressable>
                   ),
                 )}
@@ -1906,7 +1913,7 @@ export default function HomeScreen() {
               <View style={styles.searchResultsSection}>
                 <View style={styles.sectionHeaderRow}>
                   <ThemedText style={styles.sectionTitle}>
-                    Search Results for "{searchQuery}"
+                    Results for "{searchQuery}"
                   </ThemedText>
                   <Pressable onPress={clearSearch} style={styles.closeSearchBtn}>
                     <ThemedText style={styles.closeSearchBtnText}>Clear</ThemedText>
@@ -1916,11 +1923,9 @@ export default function HomeScreen() {
                 {isSearching ? (
                   <View style={styles.loadingContainer}>
                     <ActivityIndicator size="small" color="#C5FF3B" />
-                    <ThemedText style={styles.loadingText}>
-                      Intelligent Search processing...
-                    </ThemedText>
+                    <ThemedText style={styles.loadingText}>Semantic search processing...</ThemedText>
                   </View>
-                ) : searchResults.length === 0 ? (
+                ) : storeResults.length === 0 ? (
                   <View style={styles.emptyContainer}>
                     <ThemedText style={styles.emptyText}>
                       No products matching "{searchQuery}" found. Try another search.
@@ -1928,34 +1933,55 @@ export default function HomeScreen() {
                   </View>
                 ) : (
                   <View style={styles.resultsList}>
-                    {searchResults.map((product) => (
-                      <View
-                        key={product.id}
-                        style={[styles.productCard, { borderColor: '#C5FF3B', borderWidth: 1.5 }]}
-                      >
-                        <View style={styles.productHeader}>
-                          <View style={styles.productMainInfo}>
-                            <ThemedText style={styles.productName}>{product.name}</ThemedText>
-                            <ThemedText style={styles.productStore}>
-                              📍 {storeMap[product.store_id] || 'Unknown Store'}
-                            </ThemedText>
+                    {storeResults.map((result) => {
+                      const accentColors = ['#C5FF3B', '#B19FFB', '#FFB7D5'];
+                      const accent = accentColors[result.floor % accentColors.length];
+                      return (
+                        <View key={result.store_id} style={[styles.storeGroupCard, { borderLeftColor: accent }]}>
+                          {/* Store header */}
+                          <View style={styles.storeGroupHeader}>
+                            <View style={{ flex: 1 }}>
+                              <ThemedText style={styles.storeGroupName}>{result.store_name}</ThemedText>
+                              <ThemedText style={styles.storeGroupMeta}>
+                                {result.zone_name ? `${result.zone_name} · ` : ''}Floor {result.floor}, Unit {result.unit_number}
+                                {result.floor_distance !== null ? `  ·  ${result.floor_distance === 0 ? '📍 Your floor' : `${result.floor_distance} floor${result.floor_distance > 1 ? 's' : ''} away`}` : ''}
+                              </ThemedText>
+                            </View>
+                            <View style={[styles.storeGroupBadge, { backgroundColor: `${accent}20` }]}>
+                              <ThemedText style={[styles.storeGroupBadgeText, { color: accent }]}>
+                                {result.products.length} item{result.products.length !== 1 ? 's' : ''}
+                              </ThemedText>
+                            </View>
                           </View>
-                          <ThemedText style={styles.productPrice}>
-                            ${Number(product.price).toFixed(2)}
-                          </ThemedText>
-                        </View>
-                        <ThemedText style={styles.productDesc}>{product.description}</ThemedText>
-                        {product.tags && product.tags.length > 0 && (
-                          <View style={styles.tagsContainer}>
-                            {product.tags.map((tag) => (
-                              <View key={tag} style={styles.tagBadge}>
-                                <ThemedText style={styles.tagBadgeText}>{tag}</ThemedText>
+
+                          {/* Products */}
+                          {result.products.map((product, idx) => (
+                            <View key={product.id} style={[styles.productRow, idx > 0 && styles.productRowDivider]}>
+                              <View style={{ flex: 1 }}>
+                                <ThemedText style={styles.productName}>{product.name}</ThemedText>
+                                {product.tags && product.tags.length > 0 && (
+                                  <View style={styles.tagsContainer}>
+                                    {product.tags.slice(0, 3).map((tag) => (
+                                      <View key={tag} style={styles.tagBadge}>
+                                        <ThemedText style={styles.tagBadgeText}>{tag}</ThemedText>
+                                      </View>
+                                    ))}
+                                  </View>
+                                )}
                               </View>
-                            ))}
-                          </View>
-                        )}
-                      </View>
-                    ))}
+                              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                <ThemedText style={styles.productPrice}>${Number(product.price).toFixed(2)}</ThemedText>
+                                <View style={[styles.stockBadge, { backgroundColor: product.in_stock ? 'rgba(76,217,100,0.12)' : 'rgba(255,59,48,0.12)' }]}>
+                                  <ThemedText style={[styles.stockBadgeText, { color: product.in_stock ? '#4CD964' : '#FF3B30' }]}>
+                                    {product.in_stock ? 'In stock' : 'Out of stock'}
+                                  </ThemedText>
+                                </View>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    })}
                   </View>
                 )}
               </View>
@@ -1968,8 +1994,7 @@ export default function HomeScreen() {
                   style={{ opacity: 0.8, marginBottom: 16 }}
                 />
                 <ThemedText style={styles.searchEmptyText}>
-                  Try searching for vague terms like "something warm for winter" or specific
-                  products like "sneakers".
+                  Select your floor above, then search for any product. Results are sorted by nearest store.
                 </ThemedText>
               </View>
             )}
@@ -2405,6 +2430,61 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  storeGroupCard: {
+    backgroundColor: '#111214',
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderLeftWidth: 3,
+    marginBottom: 4,
+  },
+  storeGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  storeGroupName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  storeGroupMeta: {
+    fontSize: 12,
+    color: '#60646C',
+    marginTop: 2,
+  },
+  storeGroupBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  storeGroupBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  productRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  productRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  stockBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stockBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   productHeader: {
     flexDirection: 'row',
