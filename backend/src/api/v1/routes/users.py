@@ -41,7 +41,7 @@ async def update_user_role(
     )
 
 
-@router.get("/", response_model=list[ClerkUser])
+@router.get("", response_model=list[ClerkUser])
 async def list_users(_admin: ClerkUser = Depends(require_super_admin)) -> list[ClerkUser]:
     users = await User.all().values()
     return [
