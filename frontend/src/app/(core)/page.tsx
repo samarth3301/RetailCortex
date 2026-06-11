@@ -109,7 +109,7 @@ export default function LandingPage() {
 
           <div className="grid gap-8 md:grid-cols-2">
             {/* Card 1: Vector Search */}
-            <div className="flex flex-col justify-between rounded-2xl border border-zinc-850 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
+            <div className="flex flex-col justify-between rounded-2xl border border-white/5 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
               <div className="mb-8">
                 <div className="flex items-center gap-2.5">
                   <svg
@@ -170,7 +170,7 @@ export default function LandingPage() {
             </div>
 
             {/* Card 2: Catalog Upload */}
-            <div className="flex flex-col justify-between rounded-2xl border border-zinc-850 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
+            <div className="flex flex-col justify-between rounded-2xl border border-white/5 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
               <div className="mb-8">
                 <div className="flex items-center gap-2.5">
                   <svg
@@ -220,7 +220,7 @@ export default function LandingPage() {
             </div>
 
             {/* Card 3: Congestion Analytics */}
-            <div className="flex flex-col justify-between rounded-2xl border border-zinc-850 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
+            <div className="flex flex-col justify-between rounded-2xl border border-white/5 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
               <div className="mb-8">
                 <div className="flex items-center gap-2.5">
                   <svg
@@ -255,7 +255,7 @@ export default function LandingPage() {
                   <span className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px]">
                     CROWD STATUS
                   </span>
-                  <span className="text-[10px] text-zinc-500 border border-zinc-850 px-2 py-0.5 rounded">
+                  <span className="text-[10px] text-zinc-500 border border-white/5 px-2 py-0.5 rounded">
                     Live
                   </span>
                 </div>
@@ -277,7 +277,7 @@ export default function LandingPage() {
             </div>
 
             {/* Card 4: Predictive Maintenance */}
-            <div className="flex flex-col justify-between rounded-2xl border border-zinc-850 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
+            <div className="flex flex-col justify-between rounded-2xl border border-white/5 bg-zinc-950/20 p-8 shadow-sm transition-all hover:border-zinc-700/60">
               <div className="mb-8">
                 <div className="flex items-center gap-2.5">
                   <svg
@@ -346,7 +346,7 @@ export default function LandingPage() {
 
           <div className="grid gap-8 md:grid-cols-3">
             {/* Adapters Card */}
-            <div className="rounded-2xl border border-zinc-850 bg-zinc-950/20 p-6 flex flex-col justify-between">
+            <div className="rounded-2xl border border-white/5 bg-zinc-950/20 p-6 flex flex-col justify-between">
               <div>
                 <h4 className="text-lg font-normal text-white font-serif">SDKs & Adapters</h4>
                 <p className="mt-2 text-xs text-zinc-400 font-light leading-relaxed">
@@ -369,7 +369,7 @@ export default function LandingPage() {
             </div>
 
             {/* Sync API Card */}
-            <div className="rounded-2xl border border-zinc-850 bg-zinc-950/20 p-6 flex flex-col justify-between">
+            <div className="rounded-2xl border border-white/5 bg-zinc-950/20 p-6 flex flex-col justify-between">
               <div>
                 <h4 className="text-lg font-normal text-white font-serif">Tenant Inventory API</h4>
                 <p className="mt-2 text-xs text-zinc-400 font-light leading-relaxed">
@@ -380,7 +380,7 @@ export default function LandingPage() {
 
               {/* JSON Code Snippet Mockup */}
               <div className="mt-8 rounded border border-zinc-800 bg-[#0d0d0d] p-3 text-[9px] font-mono text-zinc-400 overflow-x-auto">
-                <span className="text-indigo-400">POST</span> /api/v1/products/import
+                <span className="text-zinc-200 font-semibold">POST</span> /api/v1/products/import
                 <div className="mt-0.5 text-zinc-600">{'{'}</div>
                 <div className="pl-3">
                   <span className="text-emerald-400">&quot;store&quot;</span>:{' '}
@@ -395,7 +395,7 @@ export default function LandingPage() {
             </div>
 
             {/* Event Streams Webhooks Card */}
-            <div className="rounded-2xl border border-zinc-850 bg-zinc-950/20 p-6 flex flex-col justify-between">
+            <div className="rounded-2xl border border-white/5 bg-zinc-950/20 p-6 flex flex-col justify-between">
               <div>
                 <h4 className="text-lg font-normal text-white font-serif">Webhook Events</h4>
                 <p className="mt-2 text-xs text-zinc-400 font-light leading-relaxed">
@@ -436,7 +436,7 @@ export default function LandingPage() {
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {/* Stat 1 */}
             <div
-              className="grid-bg rounded-xl border border-zinc-850 bg-[#0c0c0c] p-8"
+              className="grid-bg rounded-xl border border-white/5 bg-[#0c0c0c] p-8"
               style={
                 {
                   '--grid-line-color': 'rgba(255,255,255,0.015)',
@@ -455,7 +455,7 @@ export default function LandingPage() {
 
             {/* Stat 2 */}
             <div
-              className="grid-bg rounded-xl border border-zinc-850 bg-[#0c0c0c] p-8"
+              className="grid-bg rounded-xl border border-white/5 bg-[#0c0c0c] p-8"
               style={
                 {
                   '--grid-line-color': 'rgba(255,255,255,0.015)',
@@ -474,7 +474,7 @@ export default function LandingPage() {
 
             {/* Stat 3 */}
             <div
-              className="grid-bg rounded-xl border border-zinc-850 bg-[#0c0c0c] p-8"
+              className="grid-bg rounded-xl border border-white/5 bg-[#0c0c0c] p-8"
               style={
                 {
                   '--grid-line-color': 'rgba(255,255,255,0.015)',
@@ -493,7 +493,7 @@ export default function LandingPage() {
 
             {/* Stat 4 */}
             <div
-              className="grid-bg rounded-xl border border-zinc-850 bg-[#0c0c0c] p-8"
+              className="grid-bg rounded-xl border border-white/5 bg-[#0c0c0c] p-8"
               style={
                 {
                   '--grid-line-color': 'rgba(255,255,255,0.015)',

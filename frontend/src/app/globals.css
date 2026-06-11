@@ -18,7 +18,6 @@ body {
   color: var(--foreground);
   font-family: 'Inter', sans-serif;
   overflow-x: hidden;
-  cursor: none;
 }
 
 .glass-card {
@@ -114,27 +113,6 @@ body {
 }
 .pulse-vacant { animation: heatPulse 2s infinite ease-in-out; }
 
-/* Custom Cursor */
-#custom-cursor {
-  width: 8px;
-  height: 8px;
-  background: #c4c0ff;
-  border-radius: 50%;
-  position: fixed;
-  pointer-events: none;
-  z-index: 9999;
-  transition: transform 0.1s ease;
-}
-#custom-cursor-outline {
-  width: 32px;
-  height: 32px;
-  border: 1px solid rgba(196, 192, 255, 0.3);
-  border-radius: 50%;
-  position: fixed;
-  pointer-events: none;
-  z-index: 9998;
-  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s ease;
-}
 
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }

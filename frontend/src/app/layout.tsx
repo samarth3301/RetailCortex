@@ -36,8 +36,6 @@ export default function RootLayout({
       >
         <body className="min-h-full flex flex-col bg-background text-foreground">
           {children}
-          <div id="custom-cursor"></div>
-          <div id="custom-cursor-outline"></div>
         </body>
       </html>
     </ClerkProvider>
