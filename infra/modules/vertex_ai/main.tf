@@ -19,3 +19,7 @@ resource "google_project_iam_member" "vertex_ai_agent_user" {
 
   depends_on = [google_project_service.vertex_ai]
 }
+
+resource "google_service_account_key" "vertex_ai_agent_key" {
+  service_account_id = google_service_account.vertex_ai_agent.name
+}

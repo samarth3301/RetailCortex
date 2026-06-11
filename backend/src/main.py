@@ -32,7 +32,10 @@ async def _run_migrations() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.google_application_credentials:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.google_application_credentials
+        creds_path = Path(settings.google_application_credentials)
+        if not creds_path.is_absolute():
+            creds_path = (_BACKEND_DIR / creds_path).resolve()
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(creds_path)
     await _run_migrations()
     await Tortoise.init(config=TORTOISE_ORM)
     yield

@@ -13,6 +13,12 @@ output "vertex_ai_agent_sa_email" {
   value       = module.vertex_ai.agent_sa_email
 }
 
+output "vertex_ai_agent_key_json" {
+  description = "Vertex AI agent SA key JSON — run: terraform output -raw vertex_ai_agent_key_json > ../keys/vertex-agent.json"
+  value       = module.vertex_ai.agent_key_json
+  sensitive   = true
+}
+
 output "cloud_run_url" {
   description = "Backend Cloud Run service URL."
   value       = module.cloud_run.service_url
