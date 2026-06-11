@@ -116,10 +116,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-0.5">
           {navItem('/dashboard', LayoutDashboard, 'Dashboard')}
-          {navItem('/dashboard/stores', Package, 'Inventory')}
-          {navItem('/dashboard/zones', Store, 'Zones')}
-          {navItem('/dashboard/categories', BarChart2, 'Categories')}
-          {navItem('/dashboard/campaigns', FileText, 'Campaigns')}
+          {(localRole === 'super_admin' || localRole === 'store_admin') && (
+            <>
+              {navItem('/dashboard/stores', Package, 'Inventory')}
+              {navItem('/dashboard/zones', Store, 'Zones')}
+              {navItem('/dashboard/categories', BarChart2, 'Categories')}
+              {navItem('/dashboard/campaigns', FileText, 'Campaigns')}
+            </>
+          )}
         </nav>
 
         {/* User */}
@@ -140,12 +144,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         {/* + New Store */}
-        <div className="px-3 pb-5">
-          <button className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-white/8 bg-white/[0.02] text-xs font-light text-zinc-400 hover:border-white/15 hover:text-zinc-200 hover:bg-white/[0.05] transition-all duration-150">
-            <Plus size={12} />
-            New Store
-          </button>
-        </div>
+        {localRole === 'super_admin' && (
+          <div className="px-3 pb-5">
+            <button className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-white/8 bg-white/[0.02] text-xs font-light text-zinc-400 hover:border-white/15 hover:text-zinc-200 hover:bg-white/[0.05] transition-all duration-150">
+              <Plus size={12} />
+              New Store
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* ── Main Area ── */}
