@@ -319,9 +319,6 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 mb-4">
             <h2 className="text-sm font-semibold text-zinc-300 tracking-wide">Inventory Snapshot</h2>
             <div className="h-px flex-1 bg-white/5" />
-            <Link href="/dashboard/inventory" className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1">
-              View full inventory <ChevronRight size={12} />
-            </Link>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
