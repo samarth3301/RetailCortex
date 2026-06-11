@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from src.api.deps import require_super_admin
 from src.api.v1.routes.store.products import _IMPORTED_PRODUCTS
+from src.db.models.product import Product as ProductDB
 from src.db.models.store import Category, Store
 from src.db.models.user import User
 from src.db.models.zone import Zone
+from src.models.product import Product
 from src.models.user import ClerkUser
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -232,6 +234,19 @@ async def create_category(
         name=category.name,
         slug=category.slug,
     )
+
+
+@router.get("/{store_id}/products", response_model=list[Product])
+async def list_store_products(
+    store_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[Product]:
+    store = await Store.get_or_none(id=store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    products = await ProductDB.filter(store_id=store_id).offset(skip).limit(limit)
+    return [Product.model_validate(p) for p in products]
 
 
 @router.patch("/{store_id}/zone", response_model=StoreListItem)

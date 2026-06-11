@@ -3,7 +3,6 @@ RetailCortex seed script — run from backend/ directory:
     uv run python seed.py
 """
 import asyncio
-import random
 from datetime import datetime, timedelta, timezone
 
 from tortoise import Tortoise
@@ -15,6 +14,7 @@ from src.db.models.product import Product
 from src.db.models.promotion import Promotion
 from src.db.models.store import Category, Store
 from src.db.models.zone import Zone
+from src.integrations.elastic import ElasticIntegration
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -252,6 +252,7 @@ async def seed():
 
     print("\n── Products ──")
     total_products = 0
+    elastic_docs = []
     for store_name, products in PRODUCTS_BY_STORE.items():
         store = store_map.get(store_name)
         if not store:
@@ -259,7 +260,6 @@ async def seed():
         for p in products:
             cat_name = next((s["category"] for s in STORES if s["name"] == store_name), None)
             cat = cat_map.get(cat_name) if cat_name else None
-            # Use product metadata to store stock count
             obj, created = await Product.get_or_create(
                 name=p["name"],
                 store_id=store.pk,
@@ -273,7 +273,20 @@ async def seed():
             )
             if created:
                 total_products += 1
+            elastic_docs.append({
+                "id": str(obj.pk),
+                "name": obj.name,
+                "description": "",
+                "tags": p["tags"],
+                "price": float(p["price"]),
+                "store_id": str(store.pk),
+                "in_stock": p["in_stock"],
+            })
     print(f"  [+] {total_products} products inserted")
+
+    print("\n── Elastic Index ──")
+    indexed = await ElasticIntegration.bulk_index_products(elastic_docs)
+    print(f"  [+] {indexed}/{len(elastic_docs)} docs indexed")
 
     print("\n── Promotions ──")
     for promo in PROMOTIONS:
