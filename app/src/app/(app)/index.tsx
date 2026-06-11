@@ -142,8 +142,6 @@ export default function HomeScreen() {
   const [currentFloor, setCurrentFloor] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  const [activeModal, setActiveModal] = useState<'congestion' | 'offers' | null>(null);
-
   const [zonesList, setZonesList] = useState<CongestionZone[]>([]);
   const [isLoadingZones, setIsLoadingZones] = useState(false);
   const [claimedOffers, setClaimedOffers] = useState<Record<string, boolean>>({});
@@ -1252,31 +1250,7 @@ export default function HomeScreen() {
                             </Pressable>
                             <Pressable
                               style={styles.seeProductsBtn}
-                              onPress={async () => {
-                                // Populate query bar and search
-                                setSearchQuery(store.name);
-                                setCurrentView('home');
-                                setActiveModal(null);
-                                // Fake a minor delay to let search load
-                                setTimeout(async () => {
-                                  try {
-                                    setIsSearching(true);
-                                    setHasSearched(true);
-                                    const res = await apiFetch<{
-                                      success: boolean;
-                                      data: Product[];
-                                    }>(
-                                      `/api/v1/products/search?q=${encodeURIComponent(store.name)}`,
-                                    );
-                                    setSearchResults(res.data || []);
-                                    await recordActivity('search', { query: store.name });
-                                  } catch {
-                                    // Fail silently
-                                  } finally {
-                                    setIsSearching(false);
-                                  }
-                                }, 300);
-                              }}
+                              onPress={() => handleShowStoreProducts(store)}
                             >
                               <ThemedText style={styles.seeProductsBtnText}>Products</ThemedText>
                             </Pressable>
@@ -1437,131 +1411,110 @@ export default function HomeScreen() {
             </View>
 
             {/* Exclusive Deals (Horizontal Scroll Carousel) */}
-            <ThemedText style={styles.featuredHeader}>Exclusive Deals</ThemedText>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.featuredScroll}
-            >
-              {OFFERS.filter((offer) => {
-                const match = offersSearchQuery.toLowerCase();
-                return (
-                  offer.store.toLowerCase().includes(match) ||
-                  offer.discount.toLowerCase().includes(match) ||
-                  offer.category.toLowerCase().includes(match)
-                );
-              })
-                .slice(0, 3)
-                .map((offer, idx) => {
-                  const isClaimed = !!claimedOffers[offer.code];
-                  const cardBgColor = idx % 2 === 0 ? '#FFB7D5' : '#B19FFB';
-                  return (
-                    <View
-                      key={offer.code}
-                      style={[styles.offerPageCard, { backgroundColor: cardBgColor }]}
-                    >
-                      <View style={styles.offerPageCardHeader}>
-                        <View style={styles.offerPagePill}>
-                          <ThemedText style={styles.offerPagePillText}>{offer.category}</ThemedText>
-                        </View>
-                        <ThemedText style={styles.offerPageExpiryText}>Expires in 3h</ThemedText>
-                      </View>
-
-                      <View style={styles.offerPageCardBody}>
-                        <ThemedText style={styles.offerPageCardStore}>{offer.store}</ThemedText>
-                        <ThemedText style={styles.offerPageCardDiscount}>
-                          {offer.discount}
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.offerPageCardFooter}>
-                        <Pressable
-                          style={[
-                            styles.offerPageClaimBtn,
-                            isClaimed && styles.offerPageClaimedBtn,
-                          ]}
-                          onPress={() => handleClaimOffer(offer)}
-                          disabled={isClaimed}
-                        >
-                          <ThemedText
-                            style={[
-                              styles.offerPageClaimBtnText,
-                              isClaimed && styles.offerPageClaimedBtnText,
-                            ]}
-                          >
-                            {isClaimed ? 'Claimed ✓' : 'Claim Offer'}
+            <ThemedText style={styles.featuredHeader}>Active Campaigns</ThemedText>
+            {isLoadingPromotions ? (
+              <ActivityIndicator size="small" color="#FFB7D5" style={{ marginVertical: 20 }} />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.featuredScroll}>
+                {promotionsList
+                  .filter((p) => {
+                    const match = offersSearchQuery.toLowerCase();
+                    return p.title.toLowerCase().includes(match) || p.store.name.toLowerCase().includes(match);
+                  })
+                  .filter((p) => p.is_active)
+                  .slice(0, 4)
+                  .map((promo, idx) => {
+                    const isClaimed = !!claimedOffers[promo.id];
+                    const cardBgColor = idx % 2 === 0 ? '#FFB7D5' : '#B19FFB';
+                    const endsAt = new Date(promo.ends_at);
+                    const hoursLeft = Math.max(0, Math.round((endsAt.getTime() - Date.now()) / 3600000));
+                    return (
+                      <View key={promo.id} style={[styles.offerPageCard, { backgroundColor: cardBgColor }]}>
+                        <View style={styles.offerPageCardHeader}>
+                          <View style={styles.offerPagePill}>
+                            <ThemedText style={styles.offerPagePillText}>{promo.store.name}</ThemedText>
+                          </View>
+                          <ThemedText style={styles.offerPageExpiryText}>
+                            {hoursLeft < 24 ? `${hoursLeft}h left` : `${Math.round(hoursLeft / 24)}d left`}
                           </ThemedText>
-                        </Pressable>
+                        </View>
+                        <View style={styles.offerPageCardBody}>
+                          <ThemedText style={styles.offerPageCardStore}>{promo.title}</ThemedText>
+                          <ThemedText style={styles.offerPageCardDiscount}>{promo.discount_pct}% Off</ThemedText>
+                        </View>
+                        <View style={styles.offerPageCardFooter}>
+                          <Pressable
+                            style={[styles.offerPageClaimBtn, isClaimed && styles.offerPageClaimedBtn]}
+                            onPress={() => {
+                              setClaimedOffers((prev) => ({ ...prev, [promo.id]: true }));
+                              Alert.alert('Offer Activated!', `${promo.discount_pct}% off at ${promo.store.name}. Show this to the cashier.`);
+                            }}
+                            disabled={isClaimed}
+                          >
+                            <ThemedText style={[styles.offerPageClaimBtnText, isClaimed && styles.offerPageClaimedBtnText]}>
+                              {isClaimed ? 'Claimed ✓' : 'Claim Offer'}
+                            </ThemedText>
+                          </Pressable>
+                        </View>
                       </View>
-                    </View>
-                  );
-                })}
-            </ScrollView>
+                    );
+                  })}
+              </ScrollView>
+            )}
 
             {/* All Offers (Vertical List) */}
-            <ThemedText style={styles.trendingTitle}>All offers</ThemedText>
+            <ThemedText style={styles.trendingTitle}>All campaigns</ThemedText>
             <View style={[styles.trendingList, { marginTop: 16 }]}>
-              {OFFERS.filter((offer) => {
-                const match = offersSearchQuery.toLowerCase();
-                return (
-                  offer.store.toLowerCase().includes(match) ||
-                  offer.discount.toLowerCase().includes(match) ||
-                  offer.category.toLowerCase().includes(match)
-                );
-              }).map((offer) => {
-                const isClaimed = !!claimedOffers[offer.code];
-                return (
-                  <View key={offer.code} style={styles.offerPageListCard}>
-                    <View style={styles.offerPageListCardHeader}>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText style={styles.offerPageListStore}>{offer.store}</ThemedText>
-                        <ThemedText style={styles.offerPageListDiscount}>
-                          {offer.discount}
-                        </ThemedText>
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 8,
-                            marginTop: 6,
-                          }}
-                        >
-                          <View style={styles.offerPageListCategoryBadge}>
-                            <ThemedText style={styles.offerPageListCategoryText}>
-                              {offer.category}
-                            </ThemedText>
+              {isLoadingPromotions ? (
+                <ActivityIndicator size="small" color="#FFB7D5" />
+              ) : promotionsList
+                  .filter((p) => {
+                    const match = offersSearchQuery.toLowerCase();
+                    return p.title.toLowerCase().includes(match) || p.store.name.toLowerCase().includes(match);
+                  })
+                  .map((promo) => {
+                    const isClaimed = !!claimedOffers[promo.id];
+                    const now = Date.now();
+                    const isExpired = new Date(promo.ends_at).getTime() < now;
+                    const statusLabel = isExpired ? 'Expired' : promo.is_active ? 'Active' : 'Scheduled';
+                    const statusColor = isExpired ? '#60646C' : promo.is_active ? '#4CD964' : '#B19FFB';
+                    return (
+                      <View key={promo.id} style={styles.offerPageListCard}>
+                        <View style={styles.offerPageListCardHeader}>
+                          <View style={{ flex: 1 }}>
+                            <ThemedText style={styles.offerPageListStore}>{promo.store.name}</ThemedText>
+                            <ThemedText style={styles.offerPageListDiscount}>{promo.title} — {promo.discount_pct}% off</ThemedText>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                              <View style={[styles.offerPageListCategoryBadge, { backgroundColor: `${statusColor}20` }]}>
+                                <ThemedText style={[styles.offerPageListCategoryText, { color: statusColor }]}>{statusLabel}</ThemedText>
+                              </View>
+                              <ThemedText style={styles.offerPageListExpiry}>
+                                {isExpired ? 'Ended' : `Ends ${new Date(promo.ends_at).toLocaleDateString()}`}
+                              </ThemedText>
+                            </View>
                           </View>
-                          <ThemedText style={styles.offerPageListExpiry}>Active deal</ThemedText>
+                          {!isExpired && (
+                            <Pressable
+                              style={[styles.offerListClaimBtn, isClaimed && styles.offerListClaimedBtn]}
+                              onPress={() => {
+                                setClaimedOffers((prev) => ({ ...prev, [promo.id]: true }));
+                                Alert.alert('Offer Activated!', `${promo.discount_pct}% off at ${promo.store.name}.`);
+                              }}
+                              disabled={isClaimed}
+                            >
+                              <ThemedText style={[styles.offerListClaimBtnText, isClaimed && styles.offerListClaimedBtnText]}>
+                                {isClaimed ? 'Claimed ✓' : 'Claim'}
+                              </ThemedText>
+                            </Pressable>
+                          )}
                         </View>
+                        {promo.description ? (
+                          <ThemedText style={[styles.trendingStoreDesc, { marginTop: 8 }]}>{promo.description}</ThemedText>
+                        ) : null}
                       </View>
-
-                      <Pressable
-                        style={[styles.offerListClaimBtn, isClaimed && styles.offerListClaimedBtn]}
-                        onPress={() => handleClaimOffer(offer)}
-                        disabled={isClaimed}
-                      >
-                        <ThemedText
-                          style={[
-                            styles.offerListClaimBtnText,
-                            isClaimed && styles.offerListClaimedBtnText,
-                          ]}
-                        >
-                          {isClaimed ? 'Claimed ✓' : 'Claim'}
-                        </ThemedText>
-                      </Pressable>
-                    </View>
-
-                    {isClaimed && (
-                      <View style={styles.offerPageCodeBox}>
-                        <ThemedText style={styles.offerPageCodeLabel}>
-                          Show code at checkout:
-                        </ThemedText>
-                        <ThemedText style={styles.offerPageCodeText}>{offer.code}</ThemedText>
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
+                    );
+                  })
+              }
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -2167,6 +2120,73 @@ export default function HomeScreen() {
                 ))
               )}
             </View>
+          </ScrollView>
+        </SafeAreaView>
+      ) : currentView === 'storeProducts' && selectedStore ? (
+        /* VIEW 8: STORE PRODUCTS */
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+            <View style={styles.exploreHeader}>
+              <Pressable onPress={() => setCurrentView('stores')} style={styles.exploreBackBtn}>
+                <SymbolView name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }} size={20} tintColor="#ffffff" />
+              </Pressable>
+              <ThemedText style={styles.exploreHeaderTitle} numberOfLines={1}>{selectedStore.name}</ThemedText>
+              <View style={{ flex: 1 }} />
+              <Pressable onPress={() => setIsSidebarOpen(true)} style={styles.menuBtn}>
+                <View style={styles.menuLine} />
+                <View style={[styles.menuLine, { marginVertical: 4 }]} />
+                <View style={styles.menuLine} />
+              </Pressable>
+            </View>
+
+            <ThemedText style={[styles.offersInfoText, { marginBottom: 20 }]}>
+              {selectedStore.description || `Browse all products at ${selectedStore.name}.`}
+              {'\n'}Floor {selectedStore.floor}, Unit {selectedStore.unit_number}
+              {selectedStore.zone ? ` · ${selectedStore.zone.name}` : ''}
+            </ThemedText>
+
+            {isLoadingStoreProducts ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#C5FF3B" />
+                <ThemedText style={styles.loadingText}>Loading products...</ThemedText>
+              </View>
+            ) : storeProductsList.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <ThemedText style={styles.emptyText}>No products found for this store.</ThemedText>
+              </View>
+            ) : (
+              <View style={styles.resultsList}>
+                {storeProductsList.map((product) => (
+                  <View key={product.id} style={[styles.productCard, { borderColor: 'rgba(197,255,59,0.2)', borderWidth: 1 }]}>
+                    <View style={styles.productHeader}>
+                      <View style={styles.productMainInfo}>
+                        <ThemedText style={styles.productName}>{product.name}</ThemedText>
+                        {product.description ? (
+                          <ThemedText style={styles.productDesc} numberOfLines={2}>{product.description}</ThemedText>
+                        ) : null}
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                        <ThemedText style={styles.productPrice}>${Number(product.price).toFixed(2)}</ThemedText>
+                        <View style={[styles.stockBadge, { backgroundColor: product.in_stock ? 'rgba(76,217,100,0.12)' : 'rgba(255,59,48,0.12)' }]}>
+                          <ThemedText style={[styles.stockBadgeText, { color: product.in_stock ? '#4CD964' : '#FF3B30' }]}>
+                            {product.in_stock ? 'In stock' : 'Out of stock'}
+                          </ThemedText>
+                        </View>
+                      </View>
+                    </View>
+                    {product.tags && product.tags.length > 0 && (
+                      <View style={styles.tagsContainer}>
+                        {product.tags.map((tag) => (
+                          <View key={tag} style={styles.tagBadge}>
+                            <ThemedText style={styles.tagBadgeText}>{tag}</ThemedText>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
           </ScrollView>
         </SafeAreaView>
       ) : null}
