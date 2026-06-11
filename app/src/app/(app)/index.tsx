@@ -46,7 +46,17 @@ interface Product {
   in_stock: boolean;
   tags: string[];
   metadata: Record<string, unknown>;
+  store_id?: string;
+}
+
+interface StoreSearchResult {
   store_id: string;
+  store_name: string;
+  floor: number;
+  unit_number: string;
+  zone_name: string | null;
+  products: Product[];
+  floor_distance: number | null;
 }
 
 interface Zone {
@@ -107,6 +117,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [storeResults, setStoreResults] = useState<StoreSearchResult[]>([]);
+  const [currentFloor, setCurrentFloor] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   const [activeModal, setActiveModal] = useState<'congestion' | 'offers' | null>(null);
