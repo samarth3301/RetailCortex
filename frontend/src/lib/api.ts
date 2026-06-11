@@ -25,3 +25,21 @@ export async function apiFetch(
     },
   });
 }
+
+export type AgentResponse = {
+  answer: string;
+  tool_used: string | null;
+  tool_result: unknown;
+};
+
+export async function agentQuery(query: string, token: string): Promise<AgentResponse> {
+  const res = await apiFetch('/api/v1/agent/query', token, {
+    method: 'POST',
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
