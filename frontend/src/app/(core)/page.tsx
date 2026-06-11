@@ -25,9 +25,6 @@ export default function LandingPage() {
             <a href="#features" className="hover:text-white transition-colors">
               Features
             </a>
-            <a href="#developers" className="hover:text-white transition-colors">
-              Developers
-            </a>
             <a href="#metrics" className="hover:text-white transition-colors">
               Metrics
             </a>
