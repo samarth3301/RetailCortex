@@ -2,6 +2,10 @@
 
 RetailCortex is a modern, high-performance retail management platform built with a robust monorepo architecture. It leverages a full-stack TypeScript and Python ecosystem, designed for scalability and ease of deployment.
 
+## Live Demo
+
+The hosted web application is available at [https://retailcortex.yellowlabs.space/](https://retailcortex.yellowlabs.space/).
+
 ## 🏗️ Architecture
 
 The project is organized as a monorepo using [Turborepo](https://turbo.build/), managing four primary components:
