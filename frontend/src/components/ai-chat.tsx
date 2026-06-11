@@ -125,9 +125,7 @@ export default function AiChat() {
         >
           {/* Header */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5 shrink-0 bg-zinc-950/40">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center shrink-0">
-              <Sparkles size={14} className="text-indigo-400" />
-            </div>
+            <img src="/Retail_icon.png" alt="RetailCortex Logo" className="w-6 h-6 object-contain shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-white leading-none font-serif">RetailCortex AI</p>
               <p className="text-[10px] text-zinc-500 mt-0.5">Gemini 2.5 Flash · Operations Assistant</p>

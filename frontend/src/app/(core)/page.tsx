@@ -14,9 +14,7 @@ export default function LandingPage() {
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 sm:px-8">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/10">
-              <span className="text-[10px] font-bold text-white tracking-widest">RC</span>
-            </div>
+            <img src="/Retail_icon.png" alt="RetailCortex Logo" className="h-7 w-7 object-contain" />
             <span className="text-sm font-semibold tracking-tight text-white font-sans">
               RetailCortex
             </span>
